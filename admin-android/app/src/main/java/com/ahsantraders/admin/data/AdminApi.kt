@@ -1,0 +1,33 @@
+package com.ahsantraders.admin.data
+
+import com.google.gson.JsonObject
+import retrofit2.http.*
+
+interface AdminApi {
+    @POST("api/v1/auth/login") suspend fun login(@Body body: LoginRequest): LoginResponse
+    @GET("api/v1/me") suspend fun profile(): Profile
+    @PATCH("api/v1/me") suspend fun saveProfile(@Body body: Map<String, String>): Profile
+    @POST("api/v1/auth/change-password") suspend fun password(@Body body: Map<String, String>): JsonObject
+    @POST("api/v1/auth/logout") suspend fun logout(): JsonObject
+    @GET("api/v1/admin/businesses") suspend fun businesses(): List<Business>
+    @GET("api/v1/admin/dashboard") suspend fun dashboard(): Report
+    @GET("api/v1/admin/businesses/{id}/summary") suspend fun summary(@Path("id") id: String): Summary
+    @GET("api/v1/admin/stock") suspend fun stock(@Query("business_id") id: String): Stock
+    @GET("api/v1/admin/ledger/daily") suspend fun days(@Query("business_id") id: String, @Query("offset") offset: Int, @Query("limit") limit: Int = 50): List<Day>
+    @GET("api/v1/admin/ledger/{id}") suspend fun day(@Path("id") id: String): Day
+    @GET("api/v1/admin/ledger/{id}/operations") suspend fun operations(@Path("id") id: String): List<Operation>
+    @POST("api/v1/admin/ledger/daily") suspend fun daily(@Header("Idempotency-Key") key: String, @Body body: JsonObject): JsonObject
+    @POST("api/v1/admin/ledger/close") suspend fun close(@Header("Idempotency-Key") key: String, @Body body: Map<String, String>): DayClosed
+    @GET("api/v1/admin/suppliers") suspend fun suppliers(@Query("business_id") id: String): List<Supplier>
+    @POST("api/v1/admin/suppliers") suspend fun addSupplier(@Body body: JsonObject): Supplier
+    @GET("api/v1/admin/suppliers/{id}/bills") suspend fun bills(@Path("id") id: String, @Query("offset") offset: Int, @Query("limit") limit: Int = 50): List<Operation>
+    @GET("api/v1/admin/expenses") suspend fun expenses(@Query("business_id") id: String, @Query("start") start: String, @Query("end") end: String, @Query("offset") offset: Int, @Query("limit") limit: Int = 50): List<Operation>
+    @POST("api/v1/admin/batch/create") suspend fun createBatch(@Header("Idempotency-Key") key: String, @Body body: JsonObject): Batch
+    @POST("api/v1/admin/batch/{id}/start") suspend fun startBatch(@Path("id") id: String, @Header("Idempotency-Key") key: String): Batch
+    @PUT("api/v1/admin/batch/{id}/update") suspend fun logBatch(@Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject): JsonObject
+    @POST("api/v1/admin/batch/{id}/harvest") suspend fun harvest(@Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject): Harvested
+    @GET("api/v1/admin/batches") suspend fun batches(@Query("business_id") id: String, @Query("offset") offset: Int, @Query("limit") limit: Int = 50): List<Batch>
+    @GET("api/v1/admin/batch/{id}/logs") suspend fun batchHistory(@Path("id") id: String): BatchHistory
+    @GET("api/v1/admin/reports") suspend fun reports(@Query("start") start: String, @Query("end") end: String, @Query("business_id") id: String? = null): Report
+    @GET("api/v1/admin/settlements") suspend fun settlements(@Query("business_id") id: String, @Query("offset") offset: Int, @Query("limit") limit: Int = 50): List<Settlement>
+}

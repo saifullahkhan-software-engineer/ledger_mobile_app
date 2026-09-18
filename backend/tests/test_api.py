@@ -1,7 +1,8 @@
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy import select, func, text
 import pytest
-from app.db import Session, engine
+from app.db import Session, engine, ensure_business_icon_column
 from app.models import Posting, Ownership, Settlement
 from app.services import today
 
@@ -31,6 +32,30 @@ def daily(
         },
         key,
     )
+
+
+def test_legacy_business_schema_adds_missing_icon_column():
+    with Session.begin() as db:
+        db.execute(text("DROP TABLE IF EXISTS businesses"))
+        db.execute(
+            text(
+                """
+                CREATE TABLE businesses (
+                    id VARCHAR(36) PRIMARY KEY,
+                    name VARCHAR(120),
+                    type VARCHAR(20),
+                    total_shares INTEGER,
+                    share_price BIGINT,
+                    stock NUMERIC(18, 3),
+                    stock_cost BIGINT
+                )
+                """
+            )
+        )
+    asyncio.run(ensure_business_icon_column())
+    with Session.begin() as db:
+        cols = db.execute(text("PRAGMA table_info(businesses)")).fetchall()
+        assert any(col[1] == "icon_url" for col in cols)
 
 
 def test_daily_settlement_and_idempotency(client, admin_headers, investor_headers):

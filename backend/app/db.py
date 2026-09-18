@@ -5,6 +5,33 @@ from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
+
+async def ensure_business_icon_column():
+    """Backfill legacy Postgres/SQLite databases that predate the business icon column."""
+    if engine.dialect.name == "postgresql":
+        async with engine.begin() as conn:
+            exists = await conn.execute(
+                text(
+                    """
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = 'businesses' AND column_name = 'icon_url'
+                    LIMIT 1
+                    """
+                )
+            )
+            if not exists.scalar_one_or_none():
+                await conn.execute(
+                    text("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS icon_url VARCHAR(500)")
+                )
+        return
+
+    if engine.dialect.name == "sqlite":
+        async with engine.begin() as conn:
+            rows = (await conn.execute(text("PRAGMA table_info(businesses)"))).fetchall()
+            if not any(row[1] == "icon_url" for row in rows):
+                await conn.execute(text("ALTER TABLE businesses ADD COLUMN icon_url VARCHAR(500)"))
+
 load_dotenv()
 URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./ahsan.db")
 
@@ -62,6 +89,8 @@ class Base(DeclarativeBase):
 
 async def get_db():
     from .models import WriteLock
+
+    await ensure_business_icon_column()
 
     async with AsyncSessionLocal() as db:
         async with db.begin():

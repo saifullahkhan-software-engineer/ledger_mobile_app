@@ -13,7 +13,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _serverController = TextEditingController(text: 'http://192.168.1.30:8000/');
+  final _serverController = TextEditingController(text: 'http://10.0.2.2:8000/');
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
@@ -98,7 +98,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             controller: _serverController,
                             decoration: const InputDecoration(
                               labelText: 'Server Address',
-                              hintText: 'http://192.168.1.30:8000/',
+                              hintText: 'http://10.0.2.2:8000/',
                               prefixIcon: Icon(Icons.dns),
                               border: OutlineInputBorder(),
                             ),

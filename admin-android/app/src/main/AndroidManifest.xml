@@ -2,8 +2,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <application android:allowBackup="false" android:label="Ahsan Admin"
         android:icon="@drawable/ic_brand" android:supportsRtl="true"
-        android:usesCleartextTraffic="false" android:theme="@style/Theme.Ahsan">
-        <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize">
+        android:usesCleartextTraffic="false" android:theme="@style/Theme.App.Starting">
+        <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.App.Starting">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

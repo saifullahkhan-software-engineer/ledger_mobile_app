@@ -1,0 +1,26 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="260dp"
+    android:height="100dp"
+    android:viewportWidth="260"
+    android:viewportHeight="100">
+    <!-- AT Brand circular mark -->
+    <path
+        android:fillColor="#003D2B"
+        android:pathData="M50,50m-42,0a42,42 0 1,1 84,0a42,42 0 1,1 -84,0" />
+    <path
+        android:strokeColor="#E9BD55"
+        android:strokeWidth="3"
+        android:pathData="M50,50m-42,0a42,42 0 1,1 84,0a42,42 0 1,1 -84,0" />
+    <!-- White 'A' -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32,70 L46,30 L54,30 L68,70 L58,70 L54,58 L44,58 L40,70 Z M46,50 L52,50 L49,40 Z" />
+    <!-- Gold 'T' -->
+    <path
+        android:fillColor="#E9BD55"
+        android:pathData="M48,34 L76,34 L76,41 L65,41 L65,66 L58,66 L58,41 L48,41 Z" />
+    <!-- Sprout leaf decoration -->
+    <path
+        android:fillColor="#168540"
+        android:pathData="M26,38 C26,34 30,30 36,30 C36,34 32,38 26,38 Z" />
+</vector>

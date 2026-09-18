@@ -8,16 +8,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 
-val Forest = Color(0xFF003D2B)
+val Forest = BrandGreen
 val Green = Color(0xFF078448)
-val Gold = Color(0xFFE9BD55)
-val Mint = Color(0xFFE9F4ED)
-val Paper = Color(0xFFF5F8F6)
-val Ink = Color(0xFF142D25)
-val Muted = Color(0xFF66796F)
-val Chicken = Color(0xFFC72D36)
-val Lpg = Color(0xFF0871C4)
-val Broiler = Color(0xFF168540)
+val Gold = BrandGold
+val Mint = BrandMint
+val Paper = BrandPaper
+val Ink = BrandInk
+val Muted = BrandMuted
+val Chicken = ChickenRed
+val Lpg = LpgBlue
+val Broiler = BroilerGreen
 val LocalLanguage = staticCompositionLocalOf { "en" }
 
 @Composable

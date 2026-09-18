@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
@@ -112,3 +112,44 @@ class Withdraw(Input):
 
 class ResolveWithdrawal(Input):
     status: Literal["PAID", "FAILED"]
+
+
+class UserOut(BaseModel):
+    id: str
+    phone: str
+    name: str
+    role: str
+    language: str
+    kyc_status: str
+    assigned_businesses: list[str] = []
+
+
+class UserRoleUpdate(Input):
+    role: Literal["SUPERADMIN", "ADMIN", "INVESTOR"]
+
+
+class AppIconOut(BaseModel):
+    id: str
+    key: str
+    label: str
+    screen: str
+    image_url: str
+    fallback_icon: str | None = None
+    updated_at: datetime | str | None = None
+
+
+class AppIconUpdate(Input):
+    label: Name | None = None
+    screen: str = Field(default="dashboard", max_length=50)
+    image_url: str = Field(min_length=1, max_length=500)
+    fallback_icon: str | None = Field(default=None, max_length=50)
+
+
+class BusinessIconUpdate(Input):
+    icon_url: str = Field(min_length=1, max_length=500)
+
+
+class Base64IconUpload(Input):
+    filename: str = Field(default="icon.png", max_length=120)
+    data: str = Field(min_length=10, description="Base64 encoded image data")
+

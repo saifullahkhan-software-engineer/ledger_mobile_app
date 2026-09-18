@@ -1,14 +1,19 @@
+import base64
+import os
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated
+from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Header, Query
+from fastapi import Depends, FastAPI, File, Header, Query, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse
+from starlette.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
 from .db import get_db
 from .models import (
+    AppIcon,
     Assignment,
     Batch,
     BatchLog,
@@ -24,9 +29,13 @@ from .models import (
     Withdrawal,
 )
 from .schemas import (
+    AppIconOut,
+    AppIconUpdate,
+    Base64IconUpload,
     BatchCreate,
     BatchUpdate,
     BusinessCreate,
+    BusinessIconUpdate,
     Buy,
     ChangePassword,
     CloseDay,
@@ -38,6 +47,8 @@ from .schemas import (
     Register,
     ResolveWithdrawal,
     SupplierCreate,
+    UserOut,
+    UserRoleUpdate,
     Withdraw,
 )
 from .security import (
@@ -73,6 +84,12 @@ app = FastAPI(
     version="1.0.0",
     description="Admin operations and fractional ownership MVP. All money uses integer paisa. See README for settlement rules and integration boundaries.",
 )
+
+UPLOAD_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads"
+)
+os.makedirs(os.path.join(UPLOAD_DIR, "icons"), exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 Key = Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=100)]
 DB = Annotated[object, Depends(get_db, scope="function")]
 
@@ -212,6 +229,237 @@ async def admin_businesses(db: DB, u=Depends(admin)):
         data(b)
         for b in result.scalars()
     ]
+
+
+@app.get("/api/v1/admin/users", tags=["Administration"], response_model=list[UserOut])
+async def list_users(
+    db: DB,
+    u=Depends(root),
+    role: str | None = None,
+    search: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    stmt = select(User)
+    if role:
+        stmt = stmt.where(User.role == role.upper())
+    if search:
+        term = f"%{search.strip()}%"
+        stmt = stmt.where((User.name.ilike(term)) | (User.phone.ilike(term)))
+    stmt = stmt.order_by(User.name).offset(offset).limit(limit)
+    res = await db.execute(stmt)
+    users = res.scalars().all()
+    user_ids = [usr.id for usr in users]
+    assign_map: dict[str, list[str]] = {}
+    if user_ids:
+        assignments_stmt = select(Assignment).where(Assignment.user_id.in_(user_ids))
+        assign_res = await db.execute(assignments_stmt)
+        for a in assign_res.scalars().all():
+            assign_map.setdefault(a.user_id, []).append(a.business_id)
+
+    return [
+        UserOut(
+            id=usr.id,
+            phone=usr.phone,
+            name=usr.name,
+            role=usr.role,
+            language=usr.language,
+            kyc_status=usr.kyc_status,
+            assigned_businesses=assign_map.get(usr.id, []),
+        )
+        for usr in users
+    ]
+
+
+@app.get("/api/v1/admin/users/{user_id}", tags=["Administration"], response_model=UserOut)
+async def get_user_detail(user_id: str, db: DB, u=Depends(root)):
+    target = await get(db, User, user_id)
+    if not target:
+        fail("User not found", 404)
+    assign_res = await db.execute(
+        select(Assignment.business_id).where(Assignment.user_id == user_id)
+    )
+    businesses = list(assign_res.scalars().all())
+    return UserOut(
+        id=target.id,
+        phone=target.phone,
+        name=target.name,
+        role=target.role,
+        language=target.language,
+        kyc_status=target.kyc_status,
+        assigned_businesses=businesses,
+    )
+
+
+@app.put(
+    "/api/v1/admin/users/{user_id}/role",
+    tags=["Administration"],
+    response_model=UserOut,
+)
+async def update_user_role(
+    user_id: str, payload: UserRoleUpdate, db: DB, u=Depends(root)
+):
+    target = await get(db, User, user_id)
+    if not target:
+        fail("User not found", 404)
+    if target.id == u.id and payload.role != "SUPERADMIN":
+        fail("Cannot demote current superadmin", 400)
+    target.role = payload.role
+    target.token_version += 1
+    assign_res = await db.execute(
+        select(Assignment.business_id).where(Assignment.user_id == user_id)
+    )
+    businesses = list(assign_res.scalars().all())
+    return UserOut(
+        id=target.id,
+        phone=target.phone,
+        name=target.name,
+        role=target.role,
+        language=target.language,
+        kyc_status=target.kyc_status,
+        assigned_businesses=businesses,
+    )
+
+
+@app.post(
+    "/api/v1/admin/users/{user_id}/verify-kyc",
+    tags=["Administration"],
+    response_model=UserOut,
+)
+async def superadmin_verify_kyc(user_id: str, db: DB, u=Depends(root)):
+    target = await get(db, User, user_id)
+    if not target:
+        fail("User not found", 404)
+    target.kyc_status = "VERIFIED"
+    assign_res = await db.execute(
+        select(Assignment.business_id).where(Assignment.user_id == user_id)
+    )
+    businesses = list(assign_res.scalars().all())
+    return UserOut(
+        id=target.id,
+        phone=target.phone,
+        name=target.name,
+        role=target.role,
+        language=target.language,
+        kyc_status=target.kyc_status,
+        assigned_businesses=businesses,
+    )
+
+
+@app.get("/api/v1/mobile/icons", tags=["Mobile App"])
+async def get_mobile_icons(db: DB):
+    res = await db.execute(select(AppIcon))
+    icons = res.scalars().all()
+    b_res = await db.execute(select(Business.id, Business.type, Business.icon_url))
+    biz_icons = {row[0]: row[2] for row in b_res.all() if row[2]}
+    return {
+        "icons": {
+            i.key: {
+                "label": i.label,
+                "screen": i.screen,
+                "image_url": i.image_url,
+                "fallback": i.fallback_icon,
+            }
+            for i in icons
+        },
+        "business_icons": biz_icons,
+    }
+
+
+@app.get("/api/v1/admin/icons", tags=["Administration"], response_model=list[AppIconOut])
+async def list_admin_icons(db: DB, u=Depends(root)):
+    res = await db.execute(select(AppIcon).order_by(AppIcon.screen, AppIcon.key))
+    return res.scalars().all()
+
+
+@app.put(
+    "/api/v1/admin/icons/{key}",
+    tags=["Administration"],
+    response_model=AppIconOut,
+)
+async def set_app_icon(key: str, payload: AppIconUpdate, db: DB, u=Depends(root)):
+    res = await db.execute(select(AppIcon).where(AppIcon.key == key))
+    icon = res.scalar_one_or_none()
+    if not icon:
+        icon = AppIcon(
+            key=key,
+            label=payload.label or key.replace("_", " ").title(),
+            screen=payload.screen,
+            image_url=payload.image_url,
+            fallback_icon=payload.fallback_icon,
+        )
+        db.add(icon)
+    else:
+        if payload.label:
+            icon.label = payload.label
+        icon.screen = payload.screen
+        icon.image_url = payload.image_url
+        if payload.fallback_icon:
+            icon.fallback_icon = payload.fallback_icon
+    await db.flush()
+    return icon
+
+
+@app.put("/api/v1/admin/businesses/{business_id}/icon", tags=["Administration"])
+async def update_business_icon(
+    business_id: str, payload: BusinessIconUpdate, db: DB, u=Depends(root)
+):
+    biz = await get(db, Business, business_id)
+    if not biz:
+        fail("Business not found", 404)
+    biz.icon_url = payload.icon_url
+    return {"id": biz.id, "name": biz.name, "icon_url": biz.icon_url}
+
+
+@app.post("/api/v1/admin/icons/upload", tags=["Administration"])
+async def upload_icon_file(
+    file: UploadFile = File(...), u=Depends(root)
+):
+    if not file.content_type or not (
+        file.content_type.startswith("image/")
+        or file.content_type in ("image/svg+xml", "application/octet-stream")
+    ):
+        fail("Only image files are supported", 400)
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in (".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico"):
+        ext = ".png"
+
+    filename = f"icon_{uuid4().hex}{ext}"
+    target_path = os.path.join(UPLOAD_DIR, "icons", filename)
+
+    contents = await file.read()
+    if len(contents) > 2 * 1024 * 1024:
+        fail("Image size exceeds 2MB limit", 400)
+
+    with open(target_path, "wb") as f:
+        f.write(contents)
+
+    image_url = f"/uploads/icons/{filename}"
+    return {"filename": filename, "image_url": image_url}
+
+
+@app.post("/api/v1/admin/icons/upload-base64", tags=["Administration"])
+async def upload_icon_base64(payload: Base64IconUpload, u=Depends(root)):
+    raw_data = payload.data
+    if "," in raw_data:
+        raw_data = raw_data.split(",", 1)[1]
+    try:
+        binary_data = base64.b64decode(raw_data)
+    except Exception:
+        fail("Invalid base64 image data", 400)
+    if len(binary_data) > 2 * 1024 * 1024:
+        fail("Image size exceeds 2MB limit", 400)
+
+    ext = os.path.splitext(payload.filename or "")[1].lower()
+    if ext not in (".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico"):
+        ext = ".png"
+    filename = f"icon_{uuid4().hex}{ext}"
+    target_path = os.path.join(UPLOAD_DIR, "icons", filename)
+    with open(target_path, "wb") as f:
+        f.write(binary_data)
+    image_url = f"/uploads/icons/{filename}"
+    return {"filename": filename, "image_url": image_url}
 
 
 @app.post("/api/v1/admin/suppliers", tags=["Suppliers"], status_code=201)

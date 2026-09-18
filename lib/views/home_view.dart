@@ -7,6 +7,8 @@ import '../widgets/ahsan_traders_logo.dart';
 import '../widgets/custom_icons.dart';
 import '../widgets/language_selector.dart';
 import 'customers_view.dart';
+import 'icon_manager_view.dart';
+import 'users_view.dart';
 
 // Re-export AhsanColors for convenience
 class AhsanColors {
@@ -19,9 +21,9 @@ class AhsanColors {
   static const Color background = Color(0xFFF5F5F5);
 }
 
-/// Top-level navigation shell. The MVP has a single main section (customers),
-/// with a language selector available from the app bar at all times.
-class HomeView extends StatelessWidget {
+/// Top-level navigation shell. Super Admin can manage businesses, view all users,
+/// and add custom images/icons for the mobile screen cards and actions.
+class HomeView extends StatefulWidget {
   const HomeView({
     super.key,
     required this.language,
@@ -30,6 +32,45 @@ class HomeView extends StatelessWidget {
 
   final AppLanguage language;
   final ValueChanged<AppLanguage>? onLanguageChanged;
+
+  @override
+  State<HomeView> createState() => _HomeViewState();
+}
+
+class _HomeViewState extends State<HomeView> {
+  // Dynamic icons configured by Super Admin for the mobile screen
+  final Map<String, String> _screenIcons = {};
+
+  void _updateIcon(String key, String imageUrl) {
+    setState(() {
+      if (imageUrl.isEmpty) {
+        _screenIcons.remove(key);
+      } else {
+        _screenIcons[key] = imageUrl;
+      }
+    });
+  }
+
+  void _navigateToUsers() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const UsersView(isSuperAdmin: true),
+      ),
+    );
+  }
+
+  void _navigateToIconManager() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => IconManagerView(
+          currentIcons: _screenIcons,
+          onIconUpdated: _updateIcon,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,33 +86,55 @@ class HomeView extends StatelessWidget {
         ),
         title: Row(
           children: [
-            // Small logo in app bar
-            const AhsanTradersLogo(size: 30, showText: false),
+            // Custom or default logo in app bar
+            if (_screenIcons['app_logo'] != null && _screenIcons['app_logo']!.isNotEmpty)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(15),
+                child: Image.network(
+                  _screenIcons['app_logo']!,
+                  width: 30,
+                  height: 30,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const AhsanTradersLogo(size: 30, showText: false),
+                ),
+              )
+            else
+              const AhsanTradersLogo(size: 30, showText: false),
             const SizedBox(width: 12),
             const Text('Ahsan Traders'),
           ],
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.app_registration),
+            tooltip: 'Customize Screen Icons',
+            onPressed: _navigateToIconManager,
+          ),
+          IconButton(
             icon: const Icon(Icons.notifications_none),
             onPressed: () {
               // Handle notifications
             },
           ),
-          if (onLanguageChanged != null)
+          if (widget.onLanguageChanged != null)
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 8),
               child: Center(
                 child: LanguageSelector(
-                  value: language,
-                  onChanged: onLanguageChanged!,
+                  value: widget.language,
+                  onChanged: widget.onLanguageChanged!,
                 ),
               ),
             ),
         ],
       ),
       drawer: _buildDrawer(context),
-      body: const DashboardView(),
+      body: DashboardView(
+        screenIcons: _screenIcons,
+        onNavigateToUsers: _navigateToUsers,
+        onNavigateToIcons: _navigateToIconManager,
+        onUpdateIcon: _updateIcon,
+      ),
       bottomNavigationBar: const CustomBottomNavigationBar(),
     );
   }
@@ -82,14 +145,46 @@ class HomeView extends StatelessWidget {
         padding: EdgeInsets.zero,
         children: [
           DrawerHeader(
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               color: AhsanColors.primaryGreen,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const AhsanTradersLogo(size: 60, showText: false),
-                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    if (_screenIcons['app_logo'] != null && _screenIcons['app_logo']!.isNotEmpty)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(30),
+                        child: Image.network(
+                          _screenIcons['app_logo']!,
+                          width: 56,
+                          height: 56,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const AhsanTradersLogo(size: 56, showText: false),
+                        ),
+                      )
+                    else
+                      const AhsanTradersLogo(size: 56, showText: false),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AhsanColors.golden,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        'SUPER ADMIN',
+                        style: TextStyle(
+                          color: AhsanColors.primaryGreen,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
                 const Text(
                   'Ahsan Khan',
                   style: TextStyle(
@@ -109,37 +204,67 @@ class HomeView extends StatelessWidget {
             ),
           ),
           ListTile(
-            leading: const Icon(Icons.store),
-            title: const Text('Businesses'),
-            onTap: () {},
+            leading: const Icon(Icons.people, color: AhsanColors.primaryGreen),
+            title: const Text('Users & Access'),
+            subtitle: const Text('Manage investors and managers'),
+            trailing: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.green.shade100,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Text('All Users', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+            ),
+            onTap: () {
+              Navigator.pop(context);
+              _navigateToUsers();
+            },
           ),
           ListTile(
-            leading: const Icon(Icons.people),
-            title: const Text('Investors'),
-            onTap: () {},
+            leading: const Icon(Icons.photo_library, color: AhsanColors.primaryGreen),
+            title: const Text('Mobile Screen Icons'),
+            subtitle: const Text('Add & edit icons shown on screen'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.pop(context);
+              _navigateToIconManager();
+            },
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.store),
+            title: const Text('Businesses'),
+            onTap: () {
+              Navigator.pop(context);
+            },
           ),
           ListTile(
             leading: const Icon(Icons.inventory),
             title: const Text('Stock'),
-            onTap: () {},
+            onTap: () {
+              Navigator.pop(context);
+            },
           ),
           ListTile(
             leading: const Icon(Icons.receipt_long),
             title: const Text('Reports'),
-            onTap: () {},
+            onTap: () {
+              Navigator.pop(context);
+            },
           ),
           const Divider(),
           ListTile(
             leading: const Icon(Icons.settings),
             title: const Text('Settings'),
-            onTap: () {},
+            onTap: () {
+              Navigator.pop(context);
+            },
           ),
           ListTile(
             leading: const Icon(Icons.logout),
             title: const Text('Logout'),
             onTap: () {
               Navigator.pop(context);
-              // Handle logout
             },
           ),
         ],
@@ -149,7 +274,18 @@ class HomeView extends StatelessWidget {
 }
 
 class DashboardView extends StatelessWidget {
-  const DashboardView({super.key});
+  final Map<String, String> screenIcons;
+  final VoidCallback onNavigateToUsers;
+  final VoidCallback onNavigateToIcons;
+  final Function(String key, String imageUrl) onUpdateIcon;
+
+  const DashboardView({
+    super.key,
+    required this.screenIcons,
+    required this.onNavigateToUsers,
+    required this.onNavigateToIcons,
+    required this.onUpdateIcon,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -161,14 +297,18 @@ class DashboardView extends StatelessWidget {
           children: [
             // Welcome section
             _buildWelcomeSection(),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
+
+            // Super Admin Quick Control Strip
+            _buildSuperAdminQuickStrip(context),
+            const SizedBox(height: 20),
             
             // Summary cards
             _buildSummaryCards(),
             const SizedBox(height: 24),
             
             // Business cards
-            _buildBusinessCards(),
+            _buildBusinessCards(context),
             const SizedBox(height: 24),
             
             // Quick actions
@@ -193,13 +333,99 @@ class DashboardView extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Manage your 3 businesses from one place',
+          'Super Admin Dashboard · Full System Authority',
           style: TextStyle(
             fontSize: 14,
             color: Colors.grey[600],
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildSuperAdminQuickStrip(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AhsanColors.primaryGreen.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AhsanColors.primaryGreen.withOpacity(0.2)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: InkWell(
+              onTap: onNavigateToUsers,
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.people, color: AhsanColors.primaryGreen, size: 24),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'See Users',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        Text(
+                          'Investors & Admins',
+                          style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: InkWell(
+              onTap: onNavigateToIcons,
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.add_photo_alternate, color: AhsanColors.primaryGreen, size: 24),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Add Image/Icon',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        Text(
+                          'Screen Icons',
+                          style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -231,41 +457,57 @@ class DashboardView extends StatelessWidget {
     );
   }
 
-  Widget _buildBusinessCards() {
+  Widget _buildBusinessCards(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Business Overview',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: AhsanColors.primaryGreen,
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Business Overview',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AhsanColors.primaryGreen,
+              ),
+            ),
+            TextButton.icon(
+              icon: const Icon(Icons.edit, size: 14),
+              label: const Text('Edit Card Icons', style: TextStyle(fontSize: 12)),
+              onPressed: onNavigateToIcons,
+            ),
+          ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         _BusinessCard(
           title: 'Chicken Shop',
           amount: 'Rs. 18,500',
           subtitle: 'Sales Today',
+          iconUrl: screenIcons['business_chicken'],
           customIcon: CustomIcons.chicken(),
           backgroundColor: Colors.red.shade700,
+          onEditIcon: onNavigateToIcons,
         ),
         const SizedBox(height: 12),
         _BusinessCard(
           title: 'Broiler Farming',
           amount: 'Rs. 12,800',
           subtitle: 'Sales Today',
+          iconUrl: screenIcons['business_broiler'],
           customIcon: CustomIcons.agriculture(),
           backgroundColor: Colors.green.shade700,
+          onEditIcon: onNavigateToIcons,
         ),
         const SizedBox(height: 12),
         _BusinessCard(
           title: 'LPG Business',
           amount: 'Rs. 17,450',
           subtitle: 'Sales Today',
+          iconUrl: screenIcons['business_lpg'],
           customIcon: CustomIcons.lpg(),
           backgroundColor: Colors.blue.shade700,
+          onEditIcon: onNavigateToIcons,
         ),
       ],
     );
@@ -361,21 +603,22 @@ class _SummaryCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
-                    color: Colors.grey,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           Text(
             amount,
             style: const TextStyle(
-              fontSize: 18,
+              fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: AhsanColors.primaryGreen,
+              color: Colors.black87,
             ),
           ),
           const SizedBox(height: 4),
@@ -383,10 +626,10 @@ class _SummaryCard extends StatelessWidget {
             children: [
               Text(
                 percentage,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 12,
-                  color: Colors.green.shade700,
                   fontWeight: FontWeight.bold,
+                  color: Colors.green,
                 ),
               ),
               const SizedBox(width: 4),
@@ -411,7 +654,9 @@ class _BusinessCard extends StatelessWidget {
   final String subtitle;
   final IconData? icon;
   final Widget? customIcon;
+  final String? iconUrl;
   final Color backgroundColor;
+  final VoidCallback? onEditIcon;
 
   const _BusinessCard({
     required this.title,
@@ -419,7 +664,9 @@ class _BusinessCard extends StatelessWidget {
     required this.subtitle,
     this.icon,
     this.customIcon,
+    this.iconUrl,
     required this.backgroundColor,
+    this.onEditIcon,
   });
 
   @override
@@ -439,6 +686,7 @@ class _BusinessCard extends StatelessWidget {
       ),
       child: Row(
         children: [
+          // Icon shown on the mobile screen: dynamically rendered image if custom, or default vector icon
           Container(
             width: 50,
             height: 50,
@@ -446,7 +694,19 @@ class _BusinessCard extends StatelessWidget {
               color: backgroundColor,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: customIcon ?? (icon != null ? Icon(icon, color: Colors.white, size: 24) : null),
+            child: (iconUrl != null && iconUrl!.isNotEmpty)
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.network(
+                      iconUrl!,
+                      width: 50,
+                      height: 50,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) =>
+                          customIcon ?? (icon != null ? Icon(icon, color: Colors.white, size: 24) : const SizedBox.shrink()),
+                    ),
+                  )
+                : (customIcon ?? (icon != null ? Icon(icon, color: Colors.white, size: 24) : null)),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -480,7 +740,12 @@ class _BusinessCard extends StatelessWidget {
               ],
             ),
           ),
-          const Icon(Icons.chevron_right, color: Colors.grey),
+          if (onEditIcon != null)
+            IconButton(
+              icon: const Icon(Icons.edit_note, size: 20, color: Colors.grey),
+              tooltip: 'Change icon image',
+              onPressed: onEditIcon,
+            ),
         ],
       ),
     );
@@ -505,30 +770,29 @@ class _QuickAction extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                color: AhsanColors.primaryGreen.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
+      child: Column(
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: AhsanColors.primaryGreen.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Center(
               child: customIcon ?? (icon != null ? Icon(icon, color: AhsanColors.primaryGreen, size: 24) : null),
             ),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 12,
-                color: AhsanColors.primaryGreen,
-                fontWeight: FontWeight.w500,
-              ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: Colors.black87,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -540,89 +804,42 @@ class CustomBottomNavigationBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 70,
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
-            blurRadius: 4,
-            offset: const Offset(0, -2),
+            blurRadius: 10,
+            offset: const Offset(0, -5),
           ),
         ],
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _BottomNavItem(
-            icon: Icons.home,
+      child: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
+        selectedItemColor: AhsanColors.primaryGreen,
+        unselectedItemColor: Colors.grey,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home),
             label: 'Home',
-            isActive: true,
           ),
-          _BottomNavItem(
-            icon: Icons.attach_money,
+          BottomNavigationBarItem(
+            icon: Icon(Icons.attach_money),
             label: 'Sales',
-            isActive: false,
           ),
-          _BottomNavItem(
-            icon: Icons.account_balance_wallet,
+          BottomNavigationBarItem(
+            icon: Icon(Icons.account_balance_wallet),
             label: 'Expenses',
-            isActive: false,
           ),
-          _BottomNavItem(
-            icon: Icons.assessment,
+          BottomNavigationBarItem(
+            icon: Icon(Icons.assessment),
             label: 'Reports',
-            isActive: false,
           ),
-          _BottomNavItem(
-            icon: Icons.more_horiz,
+          BottomNavigationBarItem(
+            icon: Icon(Icons.more_horiz),
             label: 'More',
-            isActive: false,
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _BottomNavItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool isActive;
-
-  const _BottomNavItem({
-    required this.icon,
-    required this.label,
-    required this.isActive,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () {
-        // Handle navigation
-      },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isActive ? AhsanColors.primaryGreen : Colors.grey,
-              size: 24,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: isActive ? AhsanColors.primaryGreen : Colors.grey,
-                fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

@@ -36,7 +36,7 @@ import java.time.LocalDate
             group.forEach { business ->
                 Card(onClick = { vm.go(Page.BUSINESS, business) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = sectorColor(business.type))) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Icon(sectorIcon(business.type), null, tint = Color.White, modifier = Modifier.size(35.dp))
+                        SectorIcon(business.type, tint = Color.White, modifier = Modifier.size(35.dp))
                         Text(tr(sectorName(business.type)), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         val row = s.dashboard?.businesses?.find { it.business_id == business.id }
                         Text(row?.let { rupees(it.revenue) } ?: "—", fontSize = 12.sp, color = Color.White)
@@ -64,7 +64,7 @@ import java.time.LocalDate
     val b = s.business ?: return
     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Brush.horizontalGradient(listOf(sectorColor(b.type), Forest))).padding(24.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            Icon(sectorIcon(b.type), null, tint = Color.White, modifier = Modifier.size(58.dp))
+            SectorIcon(b.type, tint = Color.White, modifier = Modifier.size(54.dp))
             Column {
                 Text(b.name, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text(tr(sectorName(b.type)), color = Color.White.copy(alpha = .8f), modifier = Modifier.padding(top = 6.dp))
@@ -181,7 +181,7 @@ import java.time.LocalDate
         Panel {
             report.businesses.forEach { business ->
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Icon(sectorIcon(business.type), null, tint = sectorColor(business.type))
+                    SectorIcon(business.type, tint = sectorColor(business.type), modifier = Modifier.size(24.dp))
                     Text(business.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                     Text(rupees(business.net_profit), color = if (business.net_profit < 0) Chicken else Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }

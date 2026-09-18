@@ -24,6 +24,14 @@ import com.ahsantraders.admin.R
 import com.ahsantraders.admin.data.*
 
 fun sectorIcon(type: String): ImageVector = when (type) { "CHICKEN" -> Icons.Default.Restaurant; "LPG" -> Icons.Default.LocalFireDepartment; else -> Icons.Default.Eco }
+fun sectorDrawableRes(type: String): Int = when (type) {
+    "CHICKEN" -> R.drawable.ic_sector_chicken
+    "LPG" -> R.drawable.ic_sector_lpg
+    else -> R.drawable.ic_sector_broiler
+}
+@Composable fun SectorIcon(type: String, modifier: Modifier = Modifier, tint: Color = Color.White) {
+    Icon(painter = painterResource(sectorDrawableRes(type)), contentDescription = sectorName(type), tint = tint, modifier = modifier)
+}
 @Composable fun Brand(compact: Boolean = false) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Icon(painterResource(R.drawable.ic_brand), contentDescription = "Ahsan Traders", tint = Color.Unspecified, modifier = Modifier.size(if (compact) 40.dp else 64.dp))

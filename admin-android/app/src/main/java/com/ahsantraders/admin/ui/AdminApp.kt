@@ -27,7 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.ahsantraders.admin.data.*
 import kotlinx.coroutines.launch
 
-@Composable fun AdminApp(s: AdminState, vm: AdminViewModel) {
+@Composable fun AdminApp(s: AdminState, vm: AdminViewModel, onLogout: (() -> Unit)? = null) {
     if (s.user == null) { LoginScreen(s, vm); return }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -52,7 +52,7 @@ import kotlinx.coroutines.launch
             Column(Modifier.verticalScroll(rememberScrollState()).weight(1f).padding(12.dp)) {
                 NavigationDrawerItem(label = { Text(tr("Dashboard")) }, selected = s.page == Page.HOME, icon = { Icon(Icons.Default.Home, null) }, onClick = { scope.launch { drawer.close() }; vm.go(Page.HOME) })
                 s.businesses.forEach { b -> NavigationDrawerItem(label = { Text(b.name) }, selected = s.business?.id == b.id && s.page == Page.BUSINESS,
-                    icon = { Icon(sectorIcon(b.type), null) }, onClick = { scope.launch { drawer.close() }; vm.go(Page.BUSINESS, b) }) }
+                    icon = { SectorIcon(b.type, tint = sectorColor(b.type), modifier = Modifier.size(24.dp)) }, onClick = { scope.launch { drawer.close() }; vm.go(Page.BUSINESS, b) }) }
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 NavigationDrawerItem(label = { Text(tr("Reports")) }, selected = s.page == Page.REPORTS, icon = { Icon(Icons.Default.BarChart, null) }, onClick = { scope.launch { drawer.close() }; vm.go(Page.REPORTS) })
                 NavigationDrawerItem(label = { Text(tr("Settings")) }, selected = s.page == Page.SETTINGS, icon = { Icon(Icons.Default.Settings, null) }, onClick = { scope.launch { drawer.close() }; vm.go(Page.SETTINGS) })
@@ -120,7 +120,7 @@ import kotlinx.coroutines.launch
     }, confirmButton = { TextButton(onClick = { chooseKind = null }) { Text(tr("Cancel")) } }) }
     closeDay?.let { day -> ConfirmDialog("Close day", "Close ${day.date}? Net profit is ${rupees(day.profit)}. This finalizes the records and distributes eligible investor profit immediately. You cannot reopen this day in the app.", { closeDay = null }) { closeDay = null; vm.closeDay(day) } }
     if (startBatch) ConfirmDialog("Start batch", "Starting this batch closes its funding window and locks investor ownership. Continue?", { startBatch = false }) { startBatch = false; vm.startBatch() }
-    if (logout) ConfirmDialog("Sign out", "Sign out and revoke existing sessions? If offline, only this device can be signed out.", { logout = false }) { logout = false; vm.logout() }
+    if (logout) ConfirmDialog("Sign out", "Sign out and revoke existing sessions? If offline, only this device can be signed out.", { logout = false }) { logout = false; vm.logout(); onLogout?.invoke() }
     if (discard) ConfirmDialog("Cancel", "Discard this form? Unsaved fields will be lost. If a previous submission timed out, check the records before creating a new transaction.", { discard = false }) { discard = false; vm.back() }
 }
 fun pageTitle(page: Page): String = when (page) {
@@ -128,7 +128,7 @@ fun pageTitle(page: Page): String = when (page) {
     Page.STOCK -> "Stock"; Page.SUPPLIERS -> "Suppliers"; Page.BILLS -> "Supplier bills"; Page.EXPENSES -> "Expenses"
     Page.REPORTS -> "Reports"; Page.SETTINGS -> "Settings"; Page.BATCHES -> "Batches"; Page.BATCH -> "Batch history"; Page.SETTLEMENTS -> "Settlement history"
 }
-@Composable fun LoginScreen(s: AdminState, vm: AdminViewModel) {
+@Composable fun LoginScreen(s: AdminState, vm: AdminViewModel, onLoginSuccess: (() -> Unit)? = null) {
     var server by rememberSaveable { mutableStateOf(vm.server) }
     var phone by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }

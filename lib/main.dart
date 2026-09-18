@@ -1,16 +1,40 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-
-import 'core/l10n/app_l10n.dart';
-import 'core/theme/app_theme.dart';
-import 'models/app_language.dart';
-import 'services/language_service.dart';
-import 'views/home_view.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final language = await LanguageService().load();
-  runApp(LedgerApp(initialLanguage: language));
+  // Test with minimal setup to isolate the issue
+  runApp(const TestApp());
+}
+
+class TestApp extends StatelessWidget {
+  const TestApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Ahsan Traders',
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        backgroundColor: const Color(0xFF1B5E20),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: const [
+              Text(
+                'Test Screen',
+                style: TextStyle(color: Colors.white, fontSize: 24),
+              ),
+              SizedBox(height: 20),
+              Text(
+                'If you see this, the app is working',
+                style: TextStyle(color: Colors.white, fontSize: 16),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class LedgerApp extends StatefulWidget {
@@ -25,6 +49,7 @@ class LedgerApp extends StatefulWidget {
 class _LedgerAppState extends State<LedgerApp> {
   final LanguageService _languageService = LanguageService();
   late AppLanguage _language;
+  bool _showSplash = true;
 
   @override
   void initState() {
@@ -39,10 +64,20 @@ class _LedgerAppState extends State<LedgerApp> {
     });
   }
 
+  void _navigateToHome() {
+    setState(() {
+      _showSplash = false;
+    });
+  }
+
+  void _handleLoginSuccess() {
+    _navigateToHome();
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Ledger',
+      title: 'Ahsan Traders',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       // The app is always available in English and Urdu.
@@ -54,10 +89,12 @@ class _LedgerAppState extends State<LedgerApp> {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      home: HomeView(
-        language: _language,
-        onLanguageChanged: _setLanguage,
-      ),
+      home: _showSplash
+          ? SplashScreen(onLoginSuccess: _handleLoginSuccess)
+          : HomeView(
+              language: _language,
+              onLanguageChanged: _setLanguage,
+            ),
     );
   }
 }

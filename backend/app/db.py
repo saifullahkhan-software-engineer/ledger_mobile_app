@@ -1,12 +1,31 @@
 import os
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, event, select, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 load_dotenv()
-URL = os.getenv("DATABASE_URL", "sqlite:///./ahsan.db")
-engine = create_engine(
+URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./ahsan.db")
+
+# Convert synchronous URL to async URL if needed
+if URL.startswith("postgresql://"):
+    sync_url = URL.replace("postgresql://", "postgresql+psycopg://", 1)
+    URL = URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+elif URL.startswith("postgresql+psycopg://"):
+    sync_url = URL
+    URL = URL.replace("postgresql+psycopg://", "postgresql+asyncpg://", 1)
+elif URL.startswith("postgresql+asyncpg://"):
+    sync_url = URL.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
+elif URL.startswith("sqlite:///"):
+    sync_url = URL
+    URL = URL.replace("sqlite:///", "sqlite+aiosqlite:///", 1)
+elif URL.startswith("sqlite+aiosqlite:///"):
+    sync_url = URL.replace("sqlite+aiosqlite:///", "sqlite:///", 1)
+else:
+    sync_url = URL
+
+engine = create_async_engine(
     URL,
     **(
         {"connect_args": {"check_same_thread": False}}
@@ -14,32 +33,45 @@ engine = create_engine(
         else {"pool_pre_ping": True}
     ),
 )
-if URL.startswith("sqlite"):
 
-    @event.listens_for(engine, "connect")
+# Keep sync engine for migrations that don't support async yet
+sync_engine = create_engine(
+    sync_url,
+    **(
+        {"connect_args": {"check_same_thread": False}}
+        if sync_url.startswith("sqlite")
+        else {"pool_pre_ping": True}
+    ),
+)
+
+if sync_url.startswith("sqlite"):
+
+    @event.listens_for(sync_engine, "connect")
     def sqlite_config(connection, _):
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA busy_timeout=10000")
 
 
-Session = sessionmaker(engine, expire_on_commit=False)
+AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+Session = sessionmaker(sync_engine, expire_on_commit=False)
 
 
 class Base(DeclarativeBase):
     pass
 
 
-def get_db():
+async def get_db():
     from .models import WriteLock
 
-    with Session() as db:
-        with db.begin():
+    async with AsyncSessionLocal() as db:
+        async with db.begin():
             # MVP correctness over throughput: serialize transactions. PostgreSQL
             # releases this row lock on commit/rollback, including across workers.
             if engine.dialect.name == "sqlite":
-                db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+                await db.execute(text("BEGIN IMMEDIATE"))
             else:
-                db.execute(
+                result = await db.execute(
                     select(WriteLock).where(WriteLock.id == 1).with_for_update()
-                ).scalar_one()
+                )
+                result.scalar_one()
             yield db

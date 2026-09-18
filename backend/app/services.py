@@ -31,8 +31,9 @@ def fail(message, status=409):
     raise HTTPException(status, message)
 
 
-def get(db, model, ident):
-    obj = db.get(model, ident)
+async def get(db, model, ident):
+    result = await db.execute(select(model).where(model.id == ident))
+    obj = result.scalar_one_or_none()
     if not obj:
         fail(f"{model.__name__} not found", 404)
     return obj
@@ -44,79 +45,86 @@ def data(obj):
     )
 
 
-def allowed(db, user, business_id):
-    business = get(db, Business, business_id)
-    if user.role != "SUPERADMIN" and not db.get(Assignment, (user.id, business_id)):
-        fail("Business access denied", 403)
+async def allowed(db, user, business_id):
+    business = await get(db, Business, business_id)
+    if user.role != "SUPERADMIN":
+        result = await db.execute(select(Assignment).where(Assignment.user_id == user.id, Assignment.business_id == business_id))
+        if not result.scalar_one_or_none():
+            fail("Business access denied", 403)
     return business
 
 
-def business_ids(db, user):
+async def business_ids(db, user):
     if user.role == "SUPERADMIN":
-        return list(db.scalars(select(Business.id)))
-    return list(
-        db.scalars(select(Assignment.business_id).where(Assignment.user_id == user.id))
-    )
+        result = await db.execute(select(Business.id))
+        return list(result.scalars())
+    result = await db.execute(select(Assignment.business_id).where(Assignment.user_id == user.id))
+    return list(result.scalars())
 
 
-def wallet(db, user_id):
-    return db.scalar(
+async def wallet(db, user_id):
+    result = await db.execute(
         select(func.coalesce(func.sum(Posting.amount), 0)).where(
             Posting.account == f"wallet:{user_id}"
         )
     )
+    return result.scalar()
 
 
-def journal(db, reference, kind, lines):
+async def journal(db, reference, kind, lines):
     if sum(lines.values()) != 0:
         raise ValueError("Unbalanced journal")
     entry = Journal(reference=reference, kind=kind)
     db.add(entry)
-    db.flush()
+    await db.flush()
     for account, amount in lines.items():
         if amount:
             db.add(Posting(journal_id=entry.id, account=account, amount=amount))
-    db.flush()
+    await db.flush()
     return entry
 
 
-def once(db, user, scope, key, payload, action):
+async def once(db, user, scope, key, payload, action):
     # Recheck permissions even on a cached response after an assignment revocation.
     if user.role == "ADMIN":
         if "business_id" in payload:
-            allowed(db, user, payload["business_id"])
+            await allowed(db, user, payload["business_id"])
         elif "day_id" in payload:
-            allowed(db, user, get(db, Day, payload["day_id"]).business_id)
+            day = await get(db, Day, payload["day_id"])
+            await allowed(db, user, day.business_id)
         elif scope.startswith(("batch-start:", "batch-update:", "harvest:")):
-            allowed(db, user, get(db, Batch, scope.split(":", 1)[1]).business_id)
+            batch = await get(db, Batch, scope.split(":", 1)[1])
+            await allowed(db, user, batch.business_id)
     digest = hashlib.sha256(
         json.dumps(jsonable_encoder(payload), sort_keys=True).encode()
     ).hexdigest()
     scope = f"{user.id}:{scope}"
-    old = db.get(Idempotency, (scope, key))
+    result = await db.execute(select(Idempotency).where(Idempotency.scope == scope, Idempotency.key == key))
+    old = result.scalar_one_or_none()
     if old:
         if old.digest != digest:
             fail("Idempotency key reused with different input")
         return old.response
-    result = jsonable_encoder(action())
+    result = jsonable_encoder(await action())
     db.add(Idempotency(scope=scope, key=key, digest=digest, response=result))
-    db.flush()
+    await db.flush()
     return result
 
 
-def owned(db, business_id, batch_id=None):
-    rows = db.scalars(
+async def owned(db, business_id, batch_id=None):
+    result = await db.execute(
         select(Ownership).where(
             Ownership.business_id == business_id, Ownership.batch_id == batch_id
         )
-    ).all()
-    result = {}
+    )
+    rows = result.scalars().all()
+    result_dict = {}
     for row in rows:
-        result[row.user_id] = result.get(row.user_id, 0) + row.shares
-    return result
+        result_dict[row.user_id] = result_dict.get(row.user_id, 0) + row.shares
+    return result_dict
 
 
-def settle(db, business, source, profit, total_shares, holders, principal=0):
+async def settle(db, business, source, profit, total_shares, holders, principal=0):
     # Unsold equity belongs economically to the operator. Floor to paisa;
     # all undistributed/rounding amounts are explicitly retained, never lost.
     pool = max(0, principal + profit)
@@ -138,35 +146,37 @@ def settle(db, business, source, profit, total_shares, holders, principal=0):
         },
     )
     db.add(result)
-    db.flush()
+    await db.flush()
     lines = {f"wallet:{u}": amount for u, amount in payouts.items()}
     lines[f"business:{business.id}"] = -distributed
-    journal(db, source, "BATCH_SETTLEMENT" if principal else "DIVIDEND", lines)
+    await journal(db, source, "BATCH_SETTLEMENT" if principal else "DIVIDEND", lines)
     return data(result)
 
 
-def operation(db, user, p):
-    b = allowed(db, user, p.business_id)
+async def operation(db, user, p):
+    b = await allowed(db, user, p.business_id)
     if b.type == "BROILER":
         fail("Use batch operations for broiler")
     if p.date != today():
         fail("Daily records must use the current Asia/Karachi business date", 422)
-    pending = db.scalar(
+    result = await db.execute(
         select(Day).where(
             Day.business_id == b.id, Day.status == "OPEN", Day.date < p.date
         )
     )
+    pending = result.scalar_one_or_none()
     if pending:
         fail("Close the previous open day first")
-    day = db.scalar(select(Day).where(Day.business_id == b.id, Day.date == p.date))
+    result = await db.execute(select(Day).where(Day.business_id == b.id, Day.date == p.date))
+    day = result.scalar_one_or_none()
     if day and day.status != "OPEN":
         fail("Day is already closed")
     if not day:
         day = Day(business_id=b.id, date=p.date)
         db.add(day)
-        db.flush()
+        await db.flush()
     if p.supplier_id:
-        supplier = get(db, Supplier, p.supplier_id)
+        supplier = await get(db, Supplier, p.supplier_id)
         if supplier.business_id != b.id:
             fail("Supplier belongs to another business", 422)
     if p.kind in ("PURCHASE", "SALE") and p.quantity <= 0:
@@ -207,9 +217,9 @@ def operation(db, user, p):
         day_id=day.id, **p.model_dump(exclude={"business_id", "date"}), cost=cost
     )
     db.add(row)
-    db.flush()
+    await db.flush()
     cash = p.amount if p.kind in ("SALE", "BYPRODUCT") else -p.amount
-    journal(
+    await journal(
         db,
         f"operation:{row.id}",
         p.kind,
@@ -218,12 +228,12 @@ def operation(db, user, p):
     return {"operation": data(row), "day": data(day), "stock": data(b)}
 
 
-def buy(db, user, p):
-    b = get(db, Business, p.business_id)
+async def buy(db, user, p):
+    b = await get(db, Business, p.business_id)
     if b.type == "BROILER":
         if not p.batch_id:
             fail("Broiler purchases require batch_id", 422)
-        batch = get(db, Batch, p.batch_id)
+        batch = await get(db, Batch, p.batch_id)
         if batch.business_id != b.id or batch.status != "FUNDING":
             fail("Batch is not open for investment")
         total, price = batch.total_shares, batch.share_price
@@ -231,21 +241,23 @@ def buy(db, user, p):
         if p.batch_id:
             fail("Running business cannot have batch_id", 422)
         # No buying after today's operations start: no last-minute capture of known profit.
-        if db.scalar(
+        result = await db.execute(
             select(Day.id).where(
                 Day.business_id == b.id,
                 ((Day.date == today()) | (Day.status == "OPEN")),
             )
-        ):
+        )
+        if result.scalar_one_or_none():
             fail(
                 "Daily ownership cutoff reached; buy before the first operation of the next day"
             )
         total, price = b.total_shares, b.share_price
-    holders = owned(db, b.id, p.batch_id)
+    holders = await owned(db, b.id, p.batch_id)
     if sum(holders.values()) + p.shares > total:
         fail("Not enough shares available")
     amount = p.shares * price
-    if wallet(db, user.id) < amount:
+    balance = await wallet(db, user.id)
+    if balance < amount:
         fail("Insufficient wallet funds")
     row = Ownership(
         user_id=user.id,
@@ -255,11 +267,12 @@ def buy(db, user, p):
         paid=amount,
     )
     db.add(row)
-    db.flush()
-    journal(
+    await db.flush()
+    await journal(
         db,
         f"buy:{row.id}",
         "SHARE_PURCHASE",
         {f"wallet:{user.id}": -amount, f"business:{b.id}": amount},
     )
-    return {"investment": data(row), "wallet_balance": wallet(db, user.id)}
+    balance = await wallet(db, user.id)
+    return {"investment": data(row), "wallet_balance": balance}

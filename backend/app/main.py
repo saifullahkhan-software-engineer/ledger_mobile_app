@@ -91,18 +91,19 @@ def index():
 
 
 @app.get("/health", tags=["System"])
-def health(db: DB):
-    db.execute(text("SELECT 1"))
+async def health(db: DB):
+    await db.execute(text("SELECT 1"))
     return {"status": "ok", "environment": MODE, "mock_payments": MOCK}
 
 
 @app.post("/api/v1/auth/register", tags=["Authentication"], status_code=201)
-def register(p: Register, db: DB):
-    if db.scalar(select(User).where(User.phone == p.phone)):
+async def register(p: Register, db: DB):
+    result = await db.execute(select(User).where(User.phone == p.phone))
+    if result.scalar_one_or_none():
         fail("Phone already registered")
     u = User(phone=p.phone, name=p.name, password_hash=passwords.hash(p.password))
     db.add(u)
-    db.flush()
+    await db.flush()
     return {
         "id": u.id,
         "kyc_status": u.kyc_status,
@@ -112,8 +113,9 @@ def register(p: Register, db: DB):
 
 
 @app.post("/api/v1/auth/login", tags=["Authentication"])
-def login(p: Login, db: DB):
-    u = db.scalar(select(User).where(User.phone == p.phone))
+async def login(p: Login, db: DB):
+    result = await db.execute(select(User).where(User.phone == p.phone))
+    u = result.scalar_one_or_none()
     valid = passwords.verify(p.password, u.password_hash if u else DUMMY_HASH)
     if not valid or not u:
         fail("Invalid credentials", 401)
@@ -133,9 +135,9 @@ def me(u=Depends(current_user)):
 
 
 @app.patch("/api/v1/me", tags=["Profile"])
-def profile(p: Profile, db: DB, u=Depends(current_user)):
+async def profile(p: Profile, db: DB, u=Depends(current_user)):
     u.name, u.language = p.name, p.language
-    db.flush()
+    await db.flush()
     return me(u)
 
 
@@ -155,15 +157,15 @@ def logout(db: DB, u=Depends(current_user)):
 
 
 @app.post("/api/v1/admin/businesses", tags=["Administration"], status_code=201)
-def create_business(p: BusinessCreate, db: DB, u=Depends(root)):
+async def create_business(p: BusinessCreate, db: DB, u=Depends(root)):
     b = Business(**p.model_dump())
     db.add(b)
-    db.flush()
+    await db.flush()
     return data(b)
 
 
 @app.post("/api/v1/admin/managers", tags=["Administration"], status_code=201)
-def create_manager(p: Register, db: DB, u=Depends(root)):
+async def create_manager(p: Register, db: DB, u=Depends(root)):
     manager = User(
         phone=p.phone,
         name=p.name,
@@ -171,7 +173,7 @@ def create_manager(p: Register, db: DB, u=Depends(root)):
         role="ADMIN",
     )
     db.add(manager)
-    db.flush()
+    await db.flush()
     return {"id": manager.id, "name": manager.name}
 
 
@@ -179,12 +181,13 @@ def create_manager(p: Register, db: DB, u=Depends(root)):
     "/api/v1/admin/businesses/{business_id}/managers/{manager_id}",
     tags=["Administration"],
 )
-def assign(business_id: str, manager_id: str, db: DB, u=Depends(root)):
-    get(db, Business, business_id)
-    manager = get(db, User, manager_id)
+async def assign(business_id: str, manager_id: str, db: DB, u=Depends(root)):
+    await get(db, Business, business_id)
+    manager = await get(db, User, manager_id)
     if manager.role != "ADMIN":
         fail("User must be a manager", 422)
-    if not db.get(Assignment, (manager_id, business_id)):
+    result = await db.execute(select(Assignment).where(Assignment.user_id == manager_id, Assignment.business_id == business_id))
+    if not result.scalar_one_or_none():
         db.add(Assignment(user_id=manager_id, business_id=business_id))
     return {"assigned": True}
 
@@ -193,69 +196,73 @@ def assign(business_id: str, manager_id: str, db: DB, u=Depends(root)):
     "/api/v1/admin/businesses/{business_id}/managers/{manager_id}",
     tags=["Administration"],
 )
-def unassign(business_id: str, manager_id: str, db: DB, u=Depends(root)):
-    row = db.get(Assignment, (manager_id, business_id))
+async def unassign(business_id: str, manager_id: str, db: DB, u=Depends(root)):
+    result = await db.execute(select(Assignment).where(Assignment.user_id == manager_id, Assignment.business_id == business_id))
+    row = result.scalar_one_or_none()
     if row:
-        db.delete(row)
+        await db.delete(row)
     return {"assigned": False}
 
 
 @app.get("/api/v1/admin/businesses", tags=["Administration"])
-def admin_businesses(db: DB, u=Depends(admin)):
+async def admin_businesses(db: DB, u=Depends(admin)):
+    ids = await business_ids(db, u)
+    result = await db.execute(select(Business).where(Business.id.in_(ids)))
     return [
         data(b)
-        for b in db.scalars(
-            select(Business).where(Business.id.in_(business_ids(db, u)))
-        )
+        for b in result.scalars()
     ]
 
 
 @app.post("/api/v1/admin/suppliers", tags=["Suppliers"], status_code=201)
-def supplier_create(p: SupplierCreate, db: DB, u=Depends(admin)):
-    allowed(db, u, p.business_id)
+async def supplier_create(p: SupplierCreate, db: DB, u=Depends(admin)):
+    await allowed(db, u, p.business_id)
     s = Supplier(**p.model_dump())
     db.add(s)
-    db.flush()
+    await db.flush()
     return data(s)
 
 
 @app.get("/api/v1/admin/suppliers", tags=["Suppliers"])
-def suppliers(business_id: str, db: DB, u=Depends(admin)):
-    allowed(db, u, business_id)
+async def suppliers(business_id: str, db: DB, u=Depends(admin)):
+    await allowed(db, u, business_id)
+    result = await db.execute(select(Supplier).where(Supplier.business_id == business_id))
     return [
         data(s)
-        for s in db.scalars(select(Supplier).where(Supplier.business_id == business_id))
+        for s in result.scalars()
     ]
 
 
 @app.get("/api/v1/admin/suppliers/{supplier_id}/bills", tags=["Suppliers"])
-def supplier_bills(
+async def supplier_bills(
     supplier_id: str,
     db: DB,
     u=Depends(admin),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
-    s = get(db, Supplier, supplier_id)
-    allowed(db, u, s.business_id)
+    s = await get(db, Supplier, supplier_id)
+    await allowed(db, u, s.business_id)
+    result = await db.execute(
+        select(Operation)
+        .where(Operation.supplier_id == s.id, Operation.kind == "PURCHASE")
+        .order_by(Operation.created_at.desc(), Operation.id)
+        .offset(offset)
+        .limit(limit)
+    )
     return [
         data(r)
-        for r in db.scalars(
-            select(Operation)
-            .where(Operation.supplier_id == s.id, Operation.kind == "PURCHASE")
-            .order_by(Operation.created_at.desc(), Operation.id)
-            .offset(offset)
-            .limit(limit)
-        )
+        for r in result.scalars()
     ]
 
 
 @app.get("/api/v1/admin/stock", tags=["Operations"])
-def stock(business_id: str, db: DB, u=Depends(admin)):
-    b = allowed(db, u, business_id)
-    batches = db.scalars(
+async def stock(business_id: str, db: DB, u=Depends(admin)):
+    b = await allowed(db, u, business_id)
+    result = await db.execute(
         select(Batch).where(Batch.business_id == b.id, Batch.status != "HARVESTED")
-    ).all()
+    )
+    batches = result.scalars().all()
     return {
         "business_id": b.id,
         "quantity": b.stock,
@@ -270,72 +277,76 @@ def stock(business_id: str, db: DB, u=Depends(admin)):
 
 
 @app.post("/api/v1/admin/ledger/daily", tags=["Operations"])
-def daily(p: DailyInput, db: DB, key: Key, u=Depends(admin)):
-    return once(db, u, "daily", key, p.model_dump(), lambda: operation(db, u, p))
+async def daily(p: DailyInput, db: DB, key: Key, u=Depends(admin)):
+    async def action():
+        return await operation(db, u, p)
+    return await once(db, u, "daily", key, p.model_dump(), action)
 
 
 @app.get("/api/v1/admin/ledger/daily", tags=["Operations"])
-def daily_list(
+async def daily_list(
     business_id: str,
     db: DB,
     u=Depends(admin),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
-    allowed(db, u, business_id)
+    await allowed(db, u, business_id)
+    result = await db.execute(
+        select(Day)
+        .where(Day.business_id == business_id)
+        .order_by(Day.date.desc())
+        .offset(offset)
+        .limit(limit)
+    )
     return [
         data(d)
-        for d in db.scalars(
-            select(Day)
-            .where(Day.business_id == business_id)
-            .order_by(Day.date.desc())
-            .offset(offset)
-            .limit(limit)
-        )
+        for d in result.scalars()
     ]
 
 
 @app.get("/api/v1/admin/ledger/{day_id}/operations", tags=["Operations"])
-def operations(day_id: str, db: DB, u=Depends(admin)):
-    d = get(db, Day, day_id)
-    allowed(db, u, d.business_id)
+async def operations(day_id: str, db: DB, u=Depends(admin)):
+    d = await get(db, Day, day_id)
+    await allowed(db, u, d.business_id)
+    result = await db.execute(
+        select(Operation)
+        .where(Operation.day_id == day_id)
+        .order_by(Operation.created_at, Operation.id)
+    )
     return [
         data(r)
-        for r in db.scalars(
-            select(Operation)
-            .where(Operation.day_id == day_id)
-            .order_by(Operation.created_at, Operation.id)
-        )
+        for r in result.scalars()
     ]
 
 
 @app.post("/api/v1/admin/ledger/close", tags=["Settlement"])
-def close_day(p: CloseDay, db: DB, key: Key, u=Depends(admin)):
-    def action():
-        d = get(db, Day, p.day_id)
-        b = allowed(db, u, d.business_id)
+async def close_day(p: CloseDay, db: DB, key: Key, u=Depends(admin)):
+    async def action():
+        d = await get(db, Day, p.day_id)
+        b = await allowed(db, u, d.business_id)
         if d.status != "OPEN":
             fail("Day already settled")
         d.net_profit = d.revenue - d.cost - d.expenses
         d.status = "CLOSED"
-        result = settle(
-            db, b, f"day:{d.id}", d.net_profit, b.total_shares, owned(db, b.id)
+        result = await settle(
+            db, b, f"day:{d.id}", d.net_profit, b.total_shares, await owned(db, b.id)
         )
         return {"day": data(d), "settlement": result}
 
-    return once(db, u, "close", key, p.model_dump(), action)
+    return await once(db, u, "close", key, p.model_dump(), action)
 
 
 @app.post("/api/v1/admin/batch/create", tags=["Broiler"])
-def create_batch(p: BatchCreate, db: DB, key: Key, u=Depends(admin)):
-    def action():
-        b = allowed(db, u, p.business_id)
+async def create_batch(p: BatchCreate, db: DB, key: Key, u=Depends(admin)):
+    async def action():
+        b = await allowed(db, u, p.business_id)
         if b.type != "BROILER":
             fail("Batch requires broiler business", 422)
         batch = Batch(**p.model_dump(exclude={"initial_cost"}), expenses=p.initial_cost)
         db.add(batch)
-        db.flush()
-        journal(
+        await db.flush()
+        await journal(
             db,
             f"batch-initial:{batch.id}",
             "BATCH_COST",
@@ -346,29 +357,29 @@ def create_batch(p: BatchCreate, db: DB, key: Key, u=Depends(admin)):
         )
         return data(batch)
 
-    return once(db, u, "batch-create", key, p.model_dump(), action)
+    return await once(db, u, "batch-create", key, p.model_dump(), action)
 
 
 @app.post("/api/v1/admin/batch/{batch_id}/start", tags=["Broiler"])
-def start_batch(batch_id: str, db: DB, key: Key, u=Depends(admin)):
-    def action():
-        b = get(db, Batch, batch_id)
-        allowed(db, u, b.business_id)
+async def start_batch(batch_id: str, db: DB, key: Key, u=Depends(admin)):
+    async def action():
+        b = await get(db, Batch, batch_id)
+        await allowed(db, u, b.business_id)
         if b.status != "FUNDING":
             fail("Batch already started")
         b.status = "ACTIVE"
         b.started_on = today()
-        db.flush()
+        await db.flush()
         return data(b)
 
-    return once(db, u, f"batch-start:{batch_id}", key, {}, action)
+    return await once(db, u, f"batch-start:{batch_id}", key, {}, action)
 
 
 @app.put("/api/v1/admin/batch/{batch_id}/update", tags=["Broiler"])
-def update_batch(batch_id: str, p: BatchUpdate, db: DB, key: Key, u=Depends(admin)):
-    def action():
-        b = get(db, Batch, batch_id)
-        allowed(db, u, b.business_id)
+async def update_batch(batch_id: str, p: BatchUpdate, db: DB, key: Key, u=Depends(admin)):
+    async def action():
+        b = await get(db, Batch, batch_id)
+        await allowed(db, u, b.business_id)
         if b.status != "ACTIVE":
             fail("Batch is not active")
         if not b.started_on <= p.date <= today():
@@ -379,8 +390,8 @@ def update_batch(batch_id: str, p: BatchUpdate, db: DB, key: Key, u=Depends(admi
         b.expenses += p.expense
         row = BatchLog(batch_id=b.id, **p.model_dump())
         db.add(row)
-        db.flush()
-        journal(
+        await db.flush()
+        await journal(
             db,
             f"batch-log:{row.id}",
             "BATCH_COST",
@@ -388,31 +399,32 @@ def update_batch(batch_id: str, p: BatchUpdate, db: DB, key: Key, u=Depends(admi
         )
         return {"batch": data(b), "log": data(row)}
 
-    return once(db, u, f"batch-update:{batch_id}", key, p.model_dump(), action)
+    return await once(db, u, f"batch-update:{batch_id}", key, p.model_dump(), action)
 
 
 @app.get("/api/v1/admin/batch/{batch_id}/logs", tags=["Broiler"])
-def batch_logs(batch_id: str, db: DB, u=Depends(admin)):
-    b = get(db, Batch, batch_id)
-    allowed(db, u, b.business_id)
+async def batch_logs(batch_id: str, db: DB, u=Depends(admin)):
+    b = await get(db, Batch, batch_id)
+    await allowed(db, u, b.business_id)
+    result = await db.execute(
+        select(BatchLog)
+        .where(BatchLog.batch_id == b.id)
+        .order_by(BatchLog.date)
+    )
     return {
         "batch": data(b),
         "logs": [
             data(r)
-            for r in db.scalars(
-                select(BatchLog)
-                .where(BatchLog.batch_id == b.id)
-                .order_by(BatchLog.date)
-            )
+            for r in result.scalars()
         ],
     }
 
 
 @app.post("/api/v1/admin/batch/{batch_id}/harvest", tags=["Settlement"])
-def harvest(batch_id: str, p: Harvest, db: DB, key: Key, u=Depends(admin)):
-    def action():
-        batch = get(db, Batch, batch_id)
-        b = allowed(db, u, batch.business_id)
+async def harvest(batch_id: str, p: Harvest, db: DB, key: Key, u=Depends(admin)):
+    async def action():
+        batch = await get(db, Batch, batch_id)
+        b = await allowed(db, u, batch.business_id)
         if batch.status != "ACTIVE":
             fail("Batch is not active")
         batch.yield_kg = p.yield_kg
@@ -424,46 +436,49 @@ def harvest(batch_id: str, p: Harvest, db: DB, key: Key, u=Depends(admin)):
         batch.status = "HARVESTED"
         batch.closed_on = today()
         cash = batch.revenue - p.additional_expense
-        journal(
+        await journal(
             db,
             f"harvest-cash:{batch.id}",
             "BATCH_REVENUE",
             {f"business:{b.id}": cash, "external:operations": -cash},
         )
-        result = settle(
+        result = await settle(
             db,
             b,
             f"batch:{batch.id}",
             batch.net_profit,
             batch.total_shares,
-            owned(db, b.id, batch.id),
+            await owned(db, b.id, batch.id),
             batch.total_shares * batch.share_price,
         )
         return {"batch": data(batch), "settlement": result}
 
-    return once(db, u, f"harvest:{batch_id}", key, p.model_dump(), action)
+    return await once(db, u, f"harvest:{batch_id}", key, p.model_dump(), action)
 
 
 @app.get("/api/v1/admin/reports", tags=["Reports"])
-def reports(
+async def reports(
     db: DB, start: date, end: date, u=Depends(admin), business_id: str | None = None
 ):
     if end < start or (end - start).days > 366:
         fail("Report range must be 0–366 days", 422)
-    ids = business_ids(db, u)
+    ids = await business_ids(db, u)
     if business_id:
-        allowed(db, u, business_id)
+        await allowed(db, u, business_id)
         ids = [business_id]
     rows = []
-    for b in db.scalars(select(Business).where(Business.id.in_(ids))):
-        days = db.scalars(
+    result = await db.execute(select(Business).where(Business.id.in_(ids)))
+    for b in result.scalars():
+        days_result = await db.execute(
             select(Day).where(Day.business_id == b.id, Day.date.between(start, end))
-        ).all()
-        batches = db.scalars(
+        )
+        days = days_result.scalars().all()
+        batches_result = await db.execute(
             select(Batch).where(
                 Batch.business_id == b.id, Batch.closed_on.between(start, end)
             )
-        ).all()
+        )
+        batches = batches_result.scalars().all()
         revenue = sum(d.revenue for d in days) + sum(x.revenue for x in batches)
         costs = sum(d.cost + d.expenses for d in days) + sum(
             x.expenses for x in batches
@@ -490,9 +505,9 @@ def reports(
 
 
 @app.get("/api/v1/admin/dashboard", tags=["Reports"])
-def dashboard(db: DB, u=Depends(admin)):
-    result = reports(db, today(), today(), u)
-    previous = reports(db, today() - timedelta(days=1), today() - timedelta(days=1), u)
+async def dashboard(db: DB, u=Depends(admin)):
+    result = await reports(db, today(), today(), u)
+    previous = await reports(db, today() - timedelta(days=1), today() - timedelta(days=1), u)
     result["yesterday"] = {
         "total_sales": previous["total_sales"],
         "total_profit": previous["total_profit"],
@@ -501,53 +516,57 @@ def dashboard(db: DB, u=Depends(admin)):
 
 
 @app.get("/api/v1/admin/settlements", tags=["Settlement"])
-def settlements(
+async def settlements(
     business_id: str,
     db: DB,
     u=Depends(admin),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
-    allowed(db, u, business_id)
+    await allowed(db, u, business_id)
+    result = await db.execute(
+        select(Settlement)
+        .where(Settlement.business_id == business_id)
+        .order_by(Settlement.created_at.desc(), Settlement.id)
+        .offset(offset)
+        .limit(limit)
+    )
     return [
         data(r)
-        for r in db.scalars(
-            select(Settlement)
-            .where(Settlement.business_id == business_id)
-            .order_by(Settlement.created_at.desc(), Settlement.id)
-            .offset(offset)
-            .limit(limit)
-        )
+        for r in result.scalars()
     ]
 
 
 @app.get("/api/v1/investor/marketplace", tags=["Investments"])
-def marketplace(db: DB, u=Depends(investor)):
+async def marketplace(db: DB, u=Depends(investor)):
     items = []
-    for b in db.scalars(select(Business).order_by(Business.name)):
+    result = await db.execute(select(Business).order_by(Business.name))
+    for b in result.scalars():
         item = data(b)
         item["available_shares"] = (
-            b.total_shares - sum(owned(db, b.id).values())
+            b.total_shares - sum((await owned(db, b.id)).values())
             if b.type != "BROILER"
             else None
         )
         item["market_cap"] = (
             b.total_shares * b.share_price if b.type != "BROILER" else None
         )
+        batch_result = await db.execute(select(Batch).where(Batch.business_id == b.id))
         item["batches"] = [
             {
                 **data(batch),
                 "available_shares": batch.total_shares
-                - sum(owned(db, b.id, batch.id).values()),
+                - sum((await owned(db, b.id, batch.id)).values()),
             }
-            for batch in db.scalars(select(Batch).where(Batch.business_id == b.id))
+            for batch in batch_result.scalars()
         ]
-        history = db.scalars(
+        history_result = await db.execute(
             select(Settlement)
             .where(Settlement.business_id == b.id)
             .order_by(Settlement.created_at.desc())
             .limit(30)
-        ).all()
+        )
+        history = history_result.scalars().all()
         item["history"] = [
             {
                 "date": r.created_at,
@@ -566,80 +585,98 @@ def marketplace(db: DB, u=Depends(investor)):
 
 
 @app.post("/api/v1/investor/transaction/buy", tags=["Investments"])
-def purchase(p: Buy, db: DB, key: Key, u=Depends(verified)):
-    return once(db, u, "buy", key, p.model_dump(), lambda: buy(db, u, p))
+async def purchase(p: Buy, db: DB, key: Key, u=Depends(verified)):
+    async def action():
+        return await buy(db, u, p)
+    return await once(db, u, "buy", key, p.model_dump(), action)
 
 
 @app.get("/api/v1/investor/portfolio", tags=["Investments"])
-def portfolio(db: DB, u=Depends(investor)):
-    holdings = db.scalars(select(Ownership).where(Ownership.user_id == u.id)).all()
-    active = [
-        h
-        for h in holdings
-        if not h.batch_id or get(db, Batch, h.batch_id).status != "HARVESTED"
-    ]
-    dividend = db.scalar(
+async def portfolio(db: DB, u=Depends(investor)):
+    result = await db.execute(select(Ownership).where(Ownership.user_id == u.id))
+    holdings = result.scalars().all()
+    active = []
+    for h in holdings:
+        if not h.batch_id:
+            active.append(h)
+        else:
+            batch = await get(db, Batch, h.batch_id)
+            if batch.status != "HARVESTED":
+                active.append(h)
+    
+    dividend_result = await db.execute(
         select(func.coalesce(func.sum(Posting.amount), 0))
         .join(Journal, Posting.journal_id == Journal.id)
         .where(Posting.account == f"wallet:{u.id}", Journal.kind == "DIVIDEND")
     )
+    dividend = dividend_result.scalar()
+    
     batch_profit = 0
-    for s in db.scalars(select(Settlement).where(Settlement.source.like("batch:%"))):
+    settlement_result = await db.execute(select(Settlement).where(Settlement.source.like("batch:%")))
+    for s in settlement_result.scalars():
         shares = s.snapshot["shares"].get(u.id, 0)
         batch_profit += (
             s.snapshot["payouts"].get(u.id, 0)
             - s.snapshot["principal"] * shares // s.snapshot["total_shares"]
         )
+    
+    balance = await wallet(db, u.id)
+    
+    holdings_data = []
+    for h in holdings:
+        business = await get(db, Business, h.business_id)
+        holdings_data.append({
+            **data(h),
+            "business_type": business.type,
+            "active": h in active,
+        })
+    
     return {
-        "wallet_balance": wallet(db, u.id),
+        "wallet_balance": balance,
         "total_invested": sum(h.paid for h in holdings),
         "active_invested": sum(h.paid for h in active),
         "total_profit_earned": dividend + batch_profit,
         "valuation_method": "Acquisition cost; no secondary market price feed",
-        "holdings": [
-            {
-                **data(h),
-                "business_type": get(db, Business, h.business_id).type,
-                "active": h in active,
-            }
-            for h in holdings
-        ],
+        "holdings": holdings_data,
     }
 
 
 @app.get("/api/v1/investor/wallet/transactions", tags=["Wallet"])
-def transactions(
+async def transactions(
     db: DB,
     u=Depends(investor),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
-    rows = db.execute(
+    result = await db.execute(
         select(Posting, Journal)
         .join(Journal)
         .where(Posting.account == f"wallet:{u.id}")
         .order_by(Journal.created_at.desc(), Journal.id)
         .offset(offset)
         .limit(limit)
-    ).all()
+    )
+    rows = result.all()
+    balance = await wallet(db, u.id)
     return {
-        "balance": wallet(db, u.id),
+        "balance": balance,
         "transactions": [{**data(j), "amount": p.amount} for p, j in rows],
     }
 
 
 @app.post("/api/v1/investor/wallet/withdraw", tags=["Wallet"])
-def withdraw(p: Withdraw, db: DB, key: Key, u=Depends(verified)):
+async def withdraw(p: Withdraw, db: DB, key: Key, u=Depends(verified)):
     if not MOCK:
         fail("Live withdrawal provider is not configured", 503)
 
-    def action():
-        if wallet(db, u.id) < p.amount:
+    async def action():
+        balance = await wallet(db, u.id)
+        if balance < p.amount:
             fail("Insufficient wallet funds")
         w = Withdrawal(user_id=u.id, **p.model_dump())
         db.add(w)
-        db.flush()
-        journal(
+        await db.flush()
+        await journal(
             db,
             f"withdraw:{w.id}",
             "WITHDRAWAL_HOLD",
@@ -647,25 +684,26 @@ def withdraw(p: Withdraw, db: DB, key: Key, u=Depends(verified)):
         )
         return data(w)
 
-    return once(db, u, "withdraw", key, p.model_dump(), action)
+    return await once(db, u, "withdraw", key, p.model_dump(), action)
 
 
 @app.get("/api/v1/investor/wallet/withdrawals", tags=["Wallet"])
-def withdrawal_list(
+async def withdrawal_list(
     db: DB,
     u=Depends(investor),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
+    result = await db.execute(
+        select(Withdrawal)
+        .where(Withdrawal.user_id == u.id)
+        .order_by(Withdrawal.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
     return [
         data(w)
-        for w in db.scalars(
-            select(Withdrawal)
-            .where(Withdrawal.user_id == u.id)
-            .order_by(Withdrawal.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-        )
+        for w in result.scalars()
     ]
 
 
@@ -681,36 +719,37 @@ def live_deposit(p: Deposit, u=Depends(verified)):
 if MODE == "development" and MOCK:
 
     @app.post("/api/v1/dev/verify-kyc", tags=["Development ONLY"])
-    def mock_kyc(db: DB, u=Depends(investor)):
+    async def mock_kyc(db: DB, u=Depends(investor)):
         u.kyc_status = "MOCK_VERIFIED"
         return {"kyc_status": "MOCK_VERIFIED", "mock": True}
 
     @app.post("/api/v1/dev/wallet/deposit", tags=["Development ONLY"])
-    def mock_deposit(p: Deposit, db: DB, key: Key, u=Depends(verified)):
-        def action():
-            journal(
+    async def mock_deposit(p: Deposit, db: DB, key: Key, u=Depends(verified)):
+        async def action():
+            await journal(
                 db,
                 f"deposit:{u.id}:{key}",
                 "MOCK_DEPOSIT",
                 {f"wallet:{u.id}": p.amount, "external:mock": -p.amount},
             )
-            return {"wallet_balance": wallet(db, u.id), "mock": True}
+            balance = await wallet(db, u.id)
+            return {"wallet_balance": balance, "mock": True}
 
-        return once(db, u, "deposit", key, p.model_dump(), action)
+        return await once(db, u, "deposit", key, p.model_dump(), action)
 
     @app.post(
         "/api/v1/dev/withdrawals/{withdrawal_id}/resolve", tags=["Development ONLY"]
     )
-    def mock_resolve(
+    async def mock_resolve(
         withdrawal_id: str, p: ResolveWithdrawal, db: DB, key: Key, u=Depends(root)
     ):
-        def action():
-            w = get(db, Withdrawal, withdrawal_id)
+        async def action():
+            w = await get(db, Withdrawal, withdrawal_id)
             if w.status != "PENDING":
                 fail("Withdrawal already resolved")
             w.status = p.status
             target = f"wallet:{w.user_id}" if p.status == "FAILED" else "external:mock"
-            journal(
+            await journal(
                 db,
                 f"resolve:{w.id}",
                 "WITHDRAWAL_" + p.status,
@@ -718,29 +757,34 @@ if MODE == "development" and MOCK:
             )
             return data(w)
 
-        return once(db, u, f"resolve:{withdrawal_id}", key, p.model_dump(), action)
+        return await once(db, u, f"resolve:{withdrawal_id}", key, p.model_dump(), action)
 
 
 @app.get("/api/v1/admin/businesses/{business_id}/summary", tags=["Reports"])
-def business_summary(
+async def business_summary(
     business_id: str, db: DB, u=Depends(admin), on: date | None = None
 ):
-    b = allowed(db, u, business_id)
+    b = await allowed(db, u, business_id)
     on = on or today()
-    day = db.scalar(select(Day).where(Day.business_id == b.id, Day.date == on))
-    ops = (
-        db.scalars(select(Operation).where(Operation.day_id == day.id)).all()
-        if day
-        else []
-    )
-    batches = db.scalars(
+    day_result = await db.execute(select(Day).where(Day.business_id == b.id, Day.date == on))
+    day = day_result.scalar_one_or_none()
+    ops = []
+    if day:
+        ops_result = await db.execute(select(Operation).where(Operation.day_id == day.id))
+        ops = ops_result.scalars().all()
+    
+    batches_result = await db.execute(
         select(Batch).where(Batch.business_id == b.id, Batch.status != "HARVESTED")
-    ).all()
-    logs = db.scalars(
+    )
+    batches = batches_result.scalars().all()
+    
+    logs_result = await db.execute(
         select(BatchLog)
         .join(Batch)
         .where(Batch.business_id == b.id, BatchLog.date == on)
-    ).all()
+    )
+    logs = logs_result.scalars().all()
+    
     return {
         "business": data(b),
         "date": on,
@@ -763,7 +807,7 @@ def business_summary(
 
 
 @app.get("/api/v1/admin/expenses", tags=["Operations"])
-def expense_list(
+async def expense_list(
     business_id: str,
     db: DB,
     start: date,
@@ -772,7 +816,7 @@ def expense_list(
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
-    allowed(db, u, business_id)
+    await allowed(db, u, business_id)
     if end < start or (end - start).days > 366:
         fail("Invalid date range", 422)
     query = (
@@ -785,11 +829,12 @@ def expense_list(
         )
         .order_by(Operation.created_at.desc(), Operation.id)
     )
-    return [data(r) for r in db.scalars(query.offset(offset).limit(limit))]
+    result = await db.execute(query.offset(offset).limit(limit))
+    return [data(r) for r in result.scalars()]
 
 
 @app.get("/api/v1/admin/batches", tags=["Broiler"])
-def admin_batch_list(
+async def admin_batch_list(
     business_id: str,
     db: DB,
     u=Depends(admin),
@@ -797,22 +842,23 @@ def admin_batch_list(
     limit: int = Query(50, ge=1, le=200),
 ):
     """Include harvested batches so administrators can revisit closed records."""
-    allowed(db, u, business_id)
+    await allowed(db, u, business_id)
+    result = await db.execute(
+        select(Batch)
+        .where(Batch.business_id == business_id)
+        .order_by(Batch.id)
+        .offset(offset)
+        .limit(limit)
+    )
     return [
         data(row)
-        for row in db.scalars(
-            select(Batch)
-            .where(Batch.business_id == business_id)
-            .order_by(Batch.id)
-            .offset(offset)
-            .limit(limit)
-        )
+        for row in result.scalars()
     ]
 
 
 @app.get("/api/v1/admin/ledger/{day_id}", tags=["Operations"])
-def daily_detail(day_id: str, db: DB, u=Depends(admin)):
+async def daily_detail(day_id: str, db: DB, u=Depends(admin)):
     """Refresh a historical day without relying on a paginated list snapshot."""
-    row = get(db, Day, day_id)
-    allowed(db, u, row.business_id)
+    row = await get(db, Day, day_id)
+    await allowed(db, u, row.business_id)
     return data(row)

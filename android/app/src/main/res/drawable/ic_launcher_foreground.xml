@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Full circular green background covering entire area -->
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M54,0C24.2,0 0,24.2 0,54s24.2,54 54,54s54,-24.2 54,-54S83.8,0 54,0z"/>
+    
+    <!-- Golden border around the edge -->
+    <path
+        android:fillColor="#FFD700"
+        android:pathData="M54,4C27.5,4 4,27.5 4,54s23.5,50 50,50s50,-23.5 50,-50S80.5,4 54,4z M54,8C78.1,8 96,25.9 96,50s-17.9,42 -42,42S12,74.1 12,50S29.9,8 54,8z"/>
+    
+    <!-- Large A letter in white, filling the circle -->
+    <text
+        android:x="28"
+        android:y="70"
+        android:text="A"
+        android:fontFamily="serif"
+        android:textSize="76"
+        android:fillColor="#FFFFFF"
+        android:textStyle="bold"
+        android:textAlign="center"/>
+    
+    <!-- Large T letter in golden color, overlapping to create AT effect -->
+    <text
+        android:x="80"
+        android:y="70"
+        android:text="T"
+        android:fontFamily="serif"
+        android:textSize="58"
+        android:fillColor="#FFD700"
+        android:textStyle="bold"
+        android:textAlign="center"/>
+    
+    <!-- Leaf decoration on the A -->
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M15,58 Q32,45 49,51 Q66,58 83,51 Q100,45 117,58 Q100,75 83,68 Q66,61 49,61 Q32,75 15,58"/>
+</vector>

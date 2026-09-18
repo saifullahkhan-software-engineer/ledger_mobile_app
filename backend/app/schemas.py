@@ -15,7 +15,7 @@ Shares = Annotated[int, Field(strict=True, gt=0, le=10**6)]
 Name = Annotated[str, Field(min_length=1, max_length=120, pattern=r"\S")]
 Note = Annotated[str, Field(max_length=1000)]
 Phone = Annotated[str, Field(pattern=r"^\+[1-9]\d{7,14}$")]
-Password = Annotated[str, Field(min_length=10, max_length=128)]
+Password = Annotated[str, Field(max_length=128)]
 
 
 class Input(BaseModel):

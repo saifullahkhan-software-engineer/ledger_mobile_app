@@ -37,7 +37,7 @@ def token(user):
     )
 
 
-def current_user(
+async def current_user(
     auth: HTTPAuthorizationCredentials = Depends(bearer),
     db=Depends(get_db, scope="function"),
 ):
@@ -50,7 +50,8 @@ def current_user(
             issuer="ahsan-traders",
             options={"require": ["exp", "sub", "ver"]},
         )
-        user = db.get(User, claims["sub"])
+        from .services import get
+        user = await get(db, User, claims["sub"])
         if not user or user.token_version != claims["ver"]:
             raise ValueError()
         return user
@@ -58,25 +59,25 @@ def current_user(
         raise HTTPException(401, "Invalid or expired token")
 
 
-def admin(user=Depends(current_user)):
+async def admin(user=Depends(current_user)):
     if user.role not in ("ADMIN", "SUPERADMIN"):
         raise HTTPException(403, "Admin access required")
     return user
 
 
-def root(user=Depends(admin)):
+async def root(user=Depends(admin)):
     if user.role != "SUPERADMIN":
         raise HTTPException(403, "Owner access required")
     return user
 
 
-def investor(user=Depends(current_user)):
+async def investor(user=Depends(current_user)):
     if user.role != "INVESTOR":
         raise HTTPException(403, "Investor account required")
     return user
 
 
-def verified(user=Depends(investor)):
+async def verified(user=Depends(investor)):
     if user.kyc_status != "VERIFIED" and not (
         MODE == "development" and MOCK and user.kyc_status == "MOCK_VERIFIED"
     ):

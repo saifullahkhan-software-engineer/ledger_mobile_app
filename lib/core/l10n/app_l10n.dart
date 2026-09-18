@@ -230,7 +230,7 @@ class _EnglishStrings extends _LocalizedStrings {
       : super(
           customerBalance: _customerBalance,
           confirmationText: _confirmationText,
-          appTitle: 'Ledger',
+          appTitle: 'Ahsan Traders',
           customers: 'Customers',
           addCustomer: 'Add customer',
           editCustomer: 'Edit customer',
@@ -380,9 +380,14 @@ class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
 
   @override
   Future<AppL10n> load(Locale locale) {
-    final AppL10n value =
-        locale.languageCode == 'ur' ? const AppL10n(_UrduStrings()) : const AppL10n(_EnglishStrings());
-    return SynchronousFuture<AppL10n>(value);
+    try {
+      final AppL10n value =
+          locale.languageCode == 'ur' ? const AppL10n(_UrduStrings()) : const AppL10n(_EnglishStrings());
+      return SynchronousFuture<AppL10n>(value);
+    } catch (e) {
+      // Fallback to English if localization fails
+      return SynchronousFuture<AppL10n>(const AppL10n(_EnglishStrings()));
+    }
   }
 
   @override

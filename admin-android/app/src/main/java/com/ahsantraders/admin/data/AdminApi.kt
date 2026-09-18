@@ -30,4 +30,9 @@ interface AdminApi {
     @GET("api/v1/admin/batch/{id}/logs") suspend fun batchHistory(@Path("id") id: String): BatchHistory
     @GET("api/v1/admin/reports") suspend fun reports(@Query("start") start: String, @Query("end") end: String, @Query("business_id") id: String? = null): Report
     @GET("api/v1/admin/settlements") suspend fun settlements(@Query("business_id") id: String, @Query("offset") offset: Int, @Query("limit") limit: Int = 50): List<Settlement>
+    @GET("api/v1/admin/users") suspend fun users(@Query("role") role: String? = null, @Query("search") search: String? = null, @Query("limit") limit: Int = 100, @Query("offset") offset: Int = 0): List<UserOut>
+    @GET("api/v1/admin/users/{user_id}") suspend fun userDetail(@Path("user_id") id: String): UserOut
+    @GET("api/v1/admin/icons") suspend fun icons(): List<AppIconItem>
+    @PUT("api/v1/admin/icons/{key}") suspend fun setIcon(@Path("key") key: String, @Body body: AppIconUpdateReq): AppIconItem
+    @PUT("api/v1/admin/businesses/{business_id}/icon") suspend fun setBusinessIcon(@Path("business_id") id: String, @Body body: BusinessIconUpdateReq): JsonObject
 }

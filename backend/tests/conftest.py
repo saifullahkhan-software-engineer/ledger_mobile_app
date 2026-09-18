@@ -5,8 +5,9 @@ os.environ["APP_ENV"] = "development"
 os.environ["ENABLE_MOCK_PAYMENTS"] = "true"
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
 import pytest
+import asyncio
 from fastapi.testclient import TestClient
-from app.db import Base, Session, engine
+from app.db import Base, Session, sync_engine as engine
 
 if "test" not in (engine.url.database or "").lower():
     raise RuntimeError(
@@ -23,7 +24,7 @@ def client():
     Base.metadata.drop_all(engine)
     from app.manage import init
 
-    init()
+    asyncio.run(init())
     with Session.begin() as db:
         db.add_all(
             [

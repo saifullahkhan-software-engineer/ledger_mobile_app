@@ -555,3 +555,76 @@ def test_android_api_paths_match_backend_contract():
         assert required_queries <= client_queries, path
         if any(p['name'].lower() == 'idempotency-key' and p.get('required') for p in params):
             assert '@Header("Idempotency-Key")' in signature, path
+
+
+def test_superadmin_users_and_mobile_icons(client, admin_headers, investor_headers):
+    # 1. Super admin can see all users
+    r = client.get("/api/v1/admin/users", headers=admin_headers)
+    assert r.status_code == 200, r.text
+    users = r.json()
+    assert len(users) >= 3  # Admin, Manager, Investor
+    roles = {u["role"] for u in users}
+    assert "SUPERADMIN" in roles
+    assert "ADMIN" in roles
+    assert "INVESTOR" in roles
+
+    # Filter by role
+    r_inv = client.get("/api/v1/admin/users?role=INVESTOR", headers=admin_headers)
+    assert r_inv.status_code == 200
+    for u in r_inv.json():
+        assert u["role"] == "INVESTOR"
+
+    # Detail of a specific user
+    user_id = users[0]["id"]
+    r_detail = client.get(f"/api/v1/admin/users/{user_id}", headers=admin_headers)
+    assert r_detail.status_code == 200
+    assert r_detail.json()["id"] == user_id
+
+    # Normal investor/admin cannot access superadmin users endpoint
+    r_forbidden = client.get("/api/v1/admin/users", headers=investor_headers)
+    assert r_forbidden.status_code == 403
+
+    # 2. Superadmin adds / configures image for mobile screen icon
+    # Base64 icon upload
+    sample_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    r_upload = client.post(
+        "/api/v1/admin/icons/upload-base64",
+        headers=admin_headers,
+        json={"filename": "chicken_icon.png", "data": sample_base64},
+    )
+    assert r_upload.status_code == 200, r_upload.text
+    uploaded_url = r_upload.json()["image_url"]
+    assert uploaded_url.startswith("/uploads/icons/")
+
+    # Superadmin sets mobile screen icon
+    r_icon = client.put(
+        "/api/v1/admin/icons/business_chicken",
+        headers=admin_headers,
+        json={
+            "label": "Chicken Shop Mobile Icon",
+            "screen": "dashboard",
+            "image_url": uploaded_url,
+            "fallback_icon": "fastfood",
+        },
+    )
+    assert r_icon.status_code == 200, r_icon.text
+    assert r_icon.json()["key"] == "business_chicken"
+    assert r_icon.json()["image_url"] == uploaded_url
+
+    # Superadmin updates business icon
+    r_biz_icon = client.put(
+        "/api/v1/admin/businesses/chicken/icon",
+        headers=admin_headers,
+        json={"icon_url": uploaded_url},
+    )
+    assert r_biz_icon.status_code == 200, r_biz_icon.text
+    assert r_biz_icon.json()["icon_url"] == uploaded_url
+
+    # Mobile endpoint fetches screen icons
+    r_mobile = client.get("/api/v1/mobile/icons")
+    assert r_mobile.status_code == 200
+    mobile_data = r_mobile.json()
+    assert "business_chicken" in mobile_data["icons"]
+    assert mobile_data["icons"]["business_chicken"]["image_url"] == uploaded_url
+    assert mobile_data["business_icons"]["chicken"] == uploaded_url
+

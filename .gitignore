@@ -49,3 +49,4 @@ __pycache__/
 *.db
 .env
 backend/.env
+backend/uploads/

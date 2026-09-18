@@ -52,11 +52,23 @@ class Business(Base):
     share_price: Mapped[int] = mapped_column(BigInteger)
     stock: Mapped[float] = mapped_column(Numeric(18, 3), default=0)
     stock_cost: Mapped[int] = mapped_column(BigInteger, default=0)
+    icon_url: Mapped[str | None] = mapped_column(String(500), nullable=True, default=None)
     __table_args__ = (
         CheckConstraint(
             "total_shares > 0 AND share_price > 0 AND stock >= 0 AND stock_cost >= 0"
         ),
     )
+
+
+class AppIcon(Base):
+    __tablename__ = "app_icons"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    key: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    label: Mapped[str] = mapped_column(String(120))
+    screen: Mapped[str] = mapped_column(String(50), default="dashboard")
+    image_url: Mapped[str] = mapped_column(String(500))
+    fallback_icon: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
 
 
 class Assignment(Base):

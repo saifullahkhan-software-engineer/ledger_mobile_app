@@ -13,7 +13,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -264,87 +263,3 @@ import com.ahsantraders.admin.data.*
     TextButton(onClick = { vm.back() }, enabled = !s.saving, modifier = Modifier.fillMaxWidth()) { Text(tr("Cancel")) }
 }
 
-// ---------------------------------------------------------------------------
-// Screen icons (SUPERADMIN only). Saves the image URL to the backend so the
-// mobile screen shows it.
-// ---------------------------------------------------------------------------
-
-private data class IconSlot(val key: String, val label: String, val description: String, val icon: ImageVector, val color: Color)
-
-private val iconSlots = listOf(
-    IconSlot("app_logo", "Brand & Header Logo", "Main AT badge on the mobile app bar and drawer.", Icons.Default.Eco, Forest),
-    IconSlot("business_chicken", "Chicken Shop Card Icon", "Red Chicken Shop card (first).", Icons.Default.Restaurant, Chicken),
-    IconSlot("business_lpg", "LPG / Gas Business Card Icon", "Blue LPG / Gas card (second).", Icons.Default.LocalFireDepartment, Lpg),
-    IconSlot("business_broiler", "Poultry Farm (Broiler) Card Icon", "Green Poultry Farm card (third).", Icons.Default.Agriculture, Broiler),
-    IconSlot("quick_sale", "Add Sale Action Icon", "\"Add sale\" quick action.", Icons.Default.AddCircle, Forest),
-    IconSlot("quick_expense", "Add Expense Action Icon", "\"Add expense\" quick action.", Icons.Default.AccountBalanceWallet, Color(0xFFE58B19)),
-    IconSlot("quick_reports", "Reports Action Icon", "\"Reports\" quick action.", Icons.Default.InsertChart, Forest),
-    IconSlot("quick_stock", "Stock Action Icon", "\"Stock\" quick action.", Icons.Default.Inventory2, Forest)
-)
-
-@Composable fun IconsScreen(s: AdminState, vm: AdminViewModel) {
-    Text(
-        "Super admin: set the image shown for each mobile screen card, app logo and quick action. Changes are saved to the server and picked up by the mobile app.",
-        color = Muted, fontSize = 12.sp
-    )
-    iconSlots.forEach { slot ->
-        val saved = s.icons.find { it.key == slot.key }
-        var url by remember(saved?.image_url) { mutableStateOf(saved?.image_url.orEmpty()) }
-        var editing by remember { mutableStateOf(false) }
-        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(14.dp)) {
-            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Box(Modifier.size(48.dp).background(slot.color, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                    Icon(slot.icon, null, tint = Color.White, modifier = Modifier.size(26.dp))
-                }
-                Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(slot.label, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f, fill = false))
-                        if (url.isNotBlank()) Surface(color = Gold.copy(alpha = .25f), shape = RoundedCornerShape(6.dp)) {
-                            Text("CUSTOM", color = Color(0xFF8E6C00), fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                        }
-                    }
-                    Text(if (url.isBlank()) "Using default system icon" else url, color = if (url.isBlank()) Muted else Lpg, fontSize = 11.sp, maxLines = 1)
-                }
-                Button(onClick = { editing = true }, enabled = !s.saving) { Text(if (url.isBlank()) tr("Add image") else tr("Change")) }
-            }
-        }
-        if (editing) {
-            var draft by remember { mutableStateOf(url) }
-            var error by remember { mutableStateOf<String?>(null) }
-            AlertDialog(
-                onDismissRequest = { editing = false },
-                title = { Text("Set image for ${slot.label}") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(slot.description, color = Muted, fontSize = 12.sp)
-                        OutlinedTextField(
-                            value = draft,
-                            onValueChange = { draft = it; error = null },
-                            label = { Text("Image URL") },
-                            placeholder = { Text("https://…") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        error?.let { Text(it, color = Chicken, fontSize = 12.sp) }
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            val trimmed = draft.trim()
-                            if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
-                                error = "Enter a valid https:// image URL"
-                            } else {
-                                editing = false
-                                vm.setScreenIcon(slot.key, slot.label, trimmed)
-                            }
-                        },
-                        enabled = !s.saving
-                    ) { Text(tr("Save")) }
-                },
-                dismissButton = { TextButton(onClick = { editing = false }) { Text(tr("Cancel")) } }
-            )
-        }
-    }
-}

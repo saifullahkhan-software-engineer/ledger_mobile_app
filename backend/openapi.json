@@ -2502,7 +2502,6 @@
           "image_url": {
             "type": "string",
             "maxLength": 500,
-            "minLength": 1,
             "title": "Image Url"
           },
           "fallback_icon": {

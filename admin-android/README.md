@@ -21,7 +21,8 @@ An Admin-first implementation of the supplied screen reference, using Kotlin, Je
 - Keystore-encrypted session token. No stored passwords, network payload logs, hardcoded credentials or demo-data fallback.
 - Exact rupee-to-paisa conversion and persistent idempotency keys for supported financial commands.
 - Owner-only Users & Access module: list/search users, add managers (with one or more business assignments) or investors, change roles, assign/remove businesses, and verify investor KYC.
-- Owner-only Screen icons module: set the image URL for each mobile screen (app logo, business cards, quick actions), saved to the backend.
+- Owner-only Screen icons module: set the image for each mobile screen (app logo, business cards, quick actions) either by uploading from the device gallery or pasting an image URL — the file is stored by the backend and its URL is saved.
+- Owner-only business icons: set a custom image per business (upload or URL) next to the screen icons.
 - Drawer shows the signed-in admin's name, phone and role; owner-only entries appear only for SUPERADMIN.
 - Phone inputs accept local (0300…), +92… and 92… formats on login and add-user; they are normalized to E.164 before sending.
 
@@ -209,10 +210,13 @@ No Hilt, code generation, WebView or bundled mock backend. The financial source 
 
 ### Small backend additions
 
+- `POST /api/v1/admin/icons/upload` (multipart) and `POST /api/v1/admin/icons/upload-base64` — store a device-picked icon on the server disk and return its `/uploads/icons/...` URL. The admin app calls `upload-base64` from the gallery picker.
+- `PUT /api/v1/admin/businesses/{business_id}/icon` — save a custom business icon URL.
+- `PUT /api/v1/admin/icons/{key}` — save a screen-icon URL (pass an empty `image_url` to revert to the default icon).
 - `GET /api/v1/admin/batches?business_id=...&offset=...&limit=...` — includes historical harvested batches.
 - `GET /api/v1/admin/ledger/{day_id}` — refreshes a specific day including current closure status.
 
-Both enforce existing business permissions. Existing database schema is unchanged. OpenAPI is regenerated alongside these endpoints.
+The database stores only a short URL, never the image bytes; the bytes live under `backend/uploads/`. Uploaded files are written to the API container's filesystem, so add a volume for `uploads/` or object storage for anything beyond local development.
 
 ## Verification status — important
 

@@ -9,6 +9,8 @@ data class UserOut(val id: String, val phone: String, val name: String, val role
 data class AppIconItem(val id: String, val key: String, val label: String, val screen: String, val image_url: String, val fallback_icon: String? = null)
 data class AppIconUpdateReq(val label: String? = null, val screen: String = "dashboard", val image_url: String, val fallback_icon: String? = null)
 data class BusinessIconUpdateReq(val icon_url: String)
+data class IconUploadResult(val filename: String, val image_url: String)
+data class Base64IconUploadReq(val filename: String, val data: String)
 data class BusinessReport(val business_id: String, val name: String, val type: String, val revenue: Long, val cost_and_expenses: Long, val net_profit: Long, val open_days: Int)
 data class Previous(val total_sales: Long, val total_profit: Long)
 data class Report(val start: String, val end: String, val businesses: List<BusinessReport>, val total_sales: Long, val total_cost_and_expenses: Long, val total_profit: Long, val yesterday: Previous? = null)

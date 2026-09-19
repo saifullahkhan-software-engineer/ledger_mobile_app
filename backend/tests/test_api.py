@@ -653,3 +653,12 @@ def test_superadmin_users_and_mobile_icons(client, admin_headers, investor_heade
     assert mobile_data["icons"]["business_chicken"]["image_url"] == uploaded_url
     assert mobile_data["business_icons"]["chicken"] == uploaded_url
 
+    # Reverting to the default icon accepts an empty image_url
+    r_remove = client.put(
+        "/api/v1/admin/icons/business_chicken",
+        headers=admin_headers,
+        json={"label": "Chicken Shop Mobile Icon", "screen": "dashboard", "image_url": ""},
+    )
+    assert r_remove.status_code == 200, r_remove.text
+    assert r_remove.json()["image_url"] == ""
+

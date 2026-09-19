@@ -7,7 +7,16 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
 import pytest
 import asyncio
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
+from app import db as database
 from app.db import Base, Session, sync_engine as engine
+
+# Fixtures use asyncio.run while TestClient owns a separate event loop.
+# asyncpg connections cannot be reused across those loops. Keep this test-only;
+# the running API should retain its normal connection pool.
+database.engine = create_async_engine(database.URL, poolclass=NullPool)
+database.AsyncSessionLocal.configure(bind=database.engine)
 
 if "test" not in (engine.url.database or "").lower():
     raise RuntimeError(

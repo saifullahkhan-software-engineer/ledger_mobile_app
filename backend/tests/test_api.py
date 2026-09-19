@@ -313,7 +313,7 @@ def test_concurrent_share_purchases(client, investor_headers):
 )
 def test_database_history_immutable(client, investor_headers):
     with pytest.raises(Exception, match="append-only"):
-        with engine.begin() as conn:
+        with sync_engine.begin() as conn:
             conn.execute(text("DELETE FROM postings"))
 
 

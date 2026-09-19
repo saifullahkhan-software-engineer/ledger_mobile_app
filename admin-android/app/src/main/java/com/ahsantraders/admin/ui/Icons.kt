@@ -87,11 +87,12 @@ private fun PreviewImage(validUrl: String?, thumb: Bitmap?, fallback: @Composabl
         var loaded by remember(validUrl) { mutableStateOf(false) }
         var bmp by remember(validUrl) { mutableStateOf<Bitmap?>(null) }
         LaunchedEffect(validUrl) {
-            val data = runCatching { context.openInputStream(Uri.parse(validUrl))?.use { it.readBytes() } }.getOrNull()
+            val data = runCatching { context.contentResolver.openInputStream(Uri.parse(validUrl))?.use { it.readBytes() } }.getOrNull()
             bmp = data?.let { d -> runCatching { BitmapFactory.decodeByteArray(d, 0, d.size) }.getOrNull() }
             loaded = true
         }
-        if (bmp != null) Image(bitmap = bmp.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        val currentBmp = bmp
+        if (currentBmp != null) Image(bitmap = currentBmp.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         else if (loaded) fallback()
         return
     }

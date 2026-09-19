@@ -1,6 +1,6 @@
 # Ahsan Traders — backend
 
-FastAPI backend for the Admin/Investor PRD, separate from the existing Flutter ledger app. **A separate Kotlin Admin client is now available in [`../admin-android/`](../admin-android/README.md). The original Flutter client remains separate; an Investor client is not implemented.**
+FastAPI backend for the Admin/Investor PRD. **The Kotlin Admin client lives in [`../admin-android/`](../admin-android/README.md); an Investor client is not implemented.**
 
 ## Delivery status
 
@@ -10,7 +10,7 @@ Implemented: password authentication, roles and assigned-business authorization,
 
 ### Verification performed in the development sandbox
 
-- SQLite API/service integration tests, including Admin client contract coverage: **19 passed, 1 skipped**.
+- SQLite API/service integration tests, including Admin client contract coverage: **21 passed, 1 skipped**.
 - Ordered Postman collection executed with Newman: **28 requests, 32 assertions passed**.
 - Tests include concurrent share purchases, concurrent withdrawals, concurrent duplicate settlements, rounding, duplicate-key conflicts, rollback, authorization, password revocation, stock valuation, and batch profit/loss.
 - The skipped test checks PostgreSQL append-only triggers. PostgreSQL/Docker execution was **not verified in this sandbox**: neither was installed, and system package installation failed. CI is configured to run the suite against PostgreSQL 16. Its remote result has not been observed.
@@ -207,6 +207,8 @@ The supplied image is an **Admin UI reference**, not an investor design or a ful
 | Daily / weekly / monthly reports | `GET /admin/reports?start=...&end=...` |
 | My profile / language | `GET/PATCH /me`; English and Urdu values supported |
 | Password / logout | `/auth/change-password`, `/auth/logout` |
+| Add manager (ADMIN) / assign business | `POST /admin/managers`, `PUT/DELETE /admin/businesses/{id}/managers/{uid}` (owner only) |
+| See / search users, role, KYC | `GET /admin/users`, `PUT /admin/users/{id}/role`, `POST /admin/users/{id}/verify-kyc` (owner only) |
 | Notifications / Help / About | Client static content; push notification delivery is not implemented |
 | LPG Customers shortcut | Customer-account/receivables management is not specified in the investment PRD and is not implemented here |
 | Broiler expected weight | Not estimated: no biological growth model or individual weight logging was specified |

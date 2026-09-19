@@ -121,7 +121,7 @@ fun SplashScreen(
                 Spacer(modifier = Modifier.weight(if (isShortScreen) 0.8f else 1.2f))
 
                 // Sector Showcase: Three colored circular badges
-                // Red = Chicken Shop, Green = Broiler Farming, Blue = LPG Business
+                // Order: Red = Chicken Shop, Blue = LPG (Gas), Green = Broiler (Poultry)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -137,15 +137,15 @@ fun SplashScreen(
                     )
                     SectorCircleItem(
                         circleSize = circleSize,
-                        circleColor = BroilerGreen,
-                        iconRes = R.drawable.ic_sector_broiler,
-                        label = "Broiler\nFarming"
-                    )
-                    SectorCircleItem(
-                        circleSize = circleSize,
                         circleColor = LpgBlue,
                         iconRes = R.drawable.ic_sector_lpg,
                         label = "LPG\nBusiness"
+                    )
+                    SectorCircleItem(
+                        circleSize = circleSize,
+                        circleColor = BroilerGreen,
+                        iconRes = R.drawable.ic_sector_broiler,
+                        label = "Poultry\nFarm"
                     )
                 }
 

@@ -32,6 +32,7 @@ private val urdu = mapOf(
     "Home" to "ہوم", "Dashboard" to "ڈیش بورڈ", "Sales" to "فروخت", "Expenses" to "اخراجات",
     "Reports" to "رپورٹس", "More" to "مزید", "Settings" to "ترتیبات", "Profile" to "پروفائل",
     "Chicken Shop" to "چکن شاپ", "LPG Business" to "ایل پی جی کاروبار", "Broiler Farming" to "برائلر فارمنگ",
+    "LPG / Gas Business" to "ایل پی جی / گیس کاروبار", "Poultry Farm (Broiler)" to "پولٹری فارم (برائلر)",
     "Today’s overview" to "آج کا خلاصہ", "Total sales" to "کل فروخت", "Net profit" to "خالص منافع",
     "Your businesses" to "آپ کے کاروبار", "Quick actions" to "فوری اقدامات", "Add sale" to "فروخت شامل کریں",
     "Add expense" to "اخراجات شامل کریں", "Add purchase" to "خریداری شامل کریں", "Stock" to "اسٹاک",
@@ -65,8 +66,13 @@ private val urdu = mapOf(
     "Feed (kg)" to "خوراک (کلوگرام)", "Deaths" to "اموات", "Expense (Rs.)" to "اخراجات (روپے)",
     "Yield (kg)" to "کل وزن (کلوگرام)", "Sale price per kg (Rs.)" to "فی کلو فروخت قیمت (روپے)",
     "Additional expense (Rs.)" to "اضافی اخراجات (روپے)", "Current password" to "موجودہ پاس ورڈ",
-    "New password" to "نیا پاس ورڈ", "Confirm password" to "پاس ورڈ کی تصدیق", "Dismiss" to "بند کریں"
+    "New password" to "نیا پاس ورڈ", "Confirm password" to "پاس ورڈ کی تصدیق", "Dismiss" to "بند کریں",
+    "Users" to "صارفین", "Screen icons" to "اسکرین آئیکنز", "Add user" to "صارف شامل کریں", "Search users" to "صارفین تلاش کریں",
+    "Investors" to "سرمایہ کار", "Managers" to "مینیجرز", "Super admin" to "سپر ایڈمن", "Verify KYC" to "کے وائی سی تصدیق کریں",
+    "Verify" to "تصدیق کریں", "Business access" to "کاروبار تک رسائی", "Create manager" to "مینیجر بنائیں", "Create investor" to "سرمایہ کار بنائیں",
+    "Super admin actions" to "سپر ایڈمن کارروائیاں", "Add image" to "تصویر شامل کریں", "Change" to "تبدیل کریں", "Save" to "محفوظ کریں",
+    "Details" to "تفصیلات", "Users & access" to "صارفین اور رسائی", "User details" to "صارف کی تفصیلات", "Set image for" to "تصویر منتخب کریں"
 )
 @Composable fun tr(text: String): String = if (LocalLanguage.current == "ur") urdu[text] ?: text else text
-fun sectorName(type: String) = when (type) { "CHICKEN" -> "Chicken Shop"; "LPG" -> "LPG Business"; else -> "Broiler Farming" }
+fun sectorName(type: String) = when (type) { "CHICKEN" -> "Chicken Shop"; "LPG" -> "LPG / Gas Business"; else -> "Poultry Farm (Broiler)" }
 fun sectorColor(type: String) = when (type) { "CHICKEN" -> Chicken; "LPG" -> Lpg; else -> Broiler }

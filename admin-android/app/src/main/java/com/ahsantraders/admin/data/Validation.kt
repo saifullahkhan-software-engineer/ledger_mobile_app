@@ -13,6 +13,34 @@ fun rupees(paisa: Long): String = "Rs. " + NumberFormat.getNumberInstance(Locale
     minimumFractionDigits = 2; maximumFractionDigits = 2
 }.format(BigDecimal.valueOf(paisa, 2))
 
+/** Canonical display order: Chicken → LPG (Gas) → Broiler (Poultry). */
+fun businessOrdinal(type: String): Int = when (type) {
+    "CHICKEN" -> 0
+    "LPG" -> 1
+    else -> 2
+}
+
+/** Accepts local (0300…), +92… and 92… formats; returns the backend's E.164 form. */
+fun normalizePhone(input: String): String {
+    var digits = input.trim().replace(Regex("[\\s\\-().]"), "")
+    if (digits.startsWith("+")) digits = digits.substring(1)
+    return when {
+        digits.length == 12 && digits.startsWith("92") -> "+$digits"
+        digits.length == 11 && digits.startsWith("0") -> "+92${digits.substring(1)}"
+        digits.length == 10 -> "+92$digits"
+        else -> "+$digits"
+    }
+}
+
+/** Resolves `/uploads/…` server paths into absolute URLs for image display. */
+fun absoluteUrl(base: String, path: String?): String {
+    if (path.isNullOrBlank()) return ""
+    if (path.startsWith("http://") || path.startsWith("https://")) return path
+    val normalized = base.trim().trimEnd('/')
+    val trimmed = path.trim()
+    return if (trimmed.startsWith('/')) normalized + trimmed else trimmed
+}
+
 fun moneyInput(text: String, zeroAllowed: Boolean = false): Long {
     val number = text.trim().toBigDecimalOrNull() ?: throw IllegalArgumentException("Enter a valid amount in rupees")
     val paisa = try { number.setScale(2, RoundingMode.UNNECESSARY).movePointRight(2).longValueExact() }

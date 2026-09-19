@@ -115,9 +115,10 @@ private suspend fun fetchRemoteBitmap(url: String): Bitmap? = withContext(Dispat
             if (!response.isSuccessful) {
                 null
             } else {
-                val body = response.body
-                if (body.contentLength() > MAX_PREVIEW_BYTES) null
-                else body.byteStream().use { readBounded(it, MAX_PREVIEW_BYTES) }
+                response.body?.let { body ->
+                    if (body.contentLength() > MAX_PREVIEW_BYTES) null
+                    else body.byteStream().use { readBounded(it, MAX_PREVIEW_BYTES) }
+                }
             }
         }
         bytes?.let { b -> BitmapFactory.decodeByteArray(b, 0, b.size) }

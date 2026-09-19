@@ -135,6 +135,7 @@ class AppIconOut(BaseModel):
     screen: str
     image_url: str
     fallback_icon: str | None = None
+    asset_id: str | None = None
     updated_at: datetime | str | None = None
 
 
@@ -147,10 +148,17 @@ class AppIconUpdate(Input):
 
 
 class BusinessIconUpdate(Input):
-    icon_url: str = Field(min_length=1, max_length=500)
+    # An empty string resets the business back to its default sector icon.
+    icon_url: str = Field(max_length=500)
 
 
 class Base64IconUpload(Input):
     filename: str = Field(default="icon.png", max_length=120)
-    data: str = Field(min_length=10, description="Base64 encoded image data")
+    # Bound the request before decoding: 2 MB of image is ~2.72 MB base64,
+    # plus allowance for a data-URL prefix and whitespace.
+    data: str = Field(
+        min_length=10,
+        max_length=3_500_000,
+        description="Base64 encoded image data",
+    )
 

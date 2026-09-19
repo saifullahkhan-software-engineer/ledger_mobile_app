@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     UniqueConstraint,
@@ -53,6 +54,11 @@ class Business(Base):
     stock: Mapped[float] = mapped_column(Numeric(18, 3), default=0)
     stock_cost: Mapped[int] = mapped_column(BigInteger, default=0)
     icon_url: Mapped[str | None] = mapped_column(String(500), nullable=True, default=None)
+    # Nullable FK to the uploaded image bytes; plain string icon_url values are
+    # preserved for legacy file paths and explicitly approved external URLs.
+    icon_asset_id: Mapped[str | None] = mapped_column(
+        ForeignKey("image_assets.id"), nullable=True, default=None
+    )
     __table_args__ = (
         CheckConstraint(
             "total_shares > 0 AND share_price > 0 AND stock >= 0 AND stock_cost >= 0"
@@ -68,7 +74,27 @@ class AppIcon(Base):
     screen: Mapped[str] = mapped_column(String(50), default="dashboard")
     image_url: Mapped[str] = mapped_column(String(500))
     fallback_icon: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
+    asset_id: Mapped[str | None] = mapped_column(
+        ForeignKey("image_assets.id"), nullable=True, default=None
+    )
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class ImageAsset(Base):
+    """Uploaded image bytes stored in the database (BYTEA / BLOB).
+
+    No ORM relationships point here and ``data`` is deferred, so ordinary
+    icon/business list queries never load image bytes.
+    """
+
+    __tablename__ = "image_assets"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    data: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    content_type: Mapped[str] = mapped_column(String(100))
+    filename: Mapped[str] = mapped_column(String(255), default="")
+    size: Mapped[int] = mapped_column(BigInteger)
+    sha256: Mapped[str] = mapped_column(String(64), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
 class Assignment(Base):

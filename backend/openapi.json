@@ -698,6 +698,63 @@
         }
       }
     },
+    "/api/v1/images/{asset_id}": {
+      "get": {
+        "tags": [
+          "Mobile App"
+        ],
+        "summary": "Get Image",
+        "description": "Serve raw image bytes stored in image_assets.\n\nPublic like the legacy /uploads files it replaces: mobile clients load\nicons without API credentials. Asset IDs are immutable \u2014 a replacement is\na new upload with a new ID and URL \u2014 so responses are cacheable forever.",
+        "operationId": "get_image_api_v1_images__asset_id__get",
+        "parameters": [
+          {
+            "name": "asset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Asset Id"
+            }
+          },
+          {
+            "name": "if-none-match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/mobile/icons": {
       "get": {
         "tags": [
@@ -2150,6 +2207,153 @@
         ]
       }
     },
+    "/api/v1/dev/verify-kyc": {
+      "post": {
+        "tags": [
+          "Development ONLY"
+        ],
+        "summary": "Mock Kyc",
+        "operationId": "mock_kyc_api_v1_dev_verify_kyc_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dev/wallet/deposit": {
+      "post": {
+        "tags": [
+          "Development ONLY"
+        ],
+        "summary": "Mock Deposit",
+        "operationId": "mock_deposit_api_v1_dev_wallet_deposit_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 100,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Deposit"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dev/withdrawals/{withdrawal_id}/resolve": {
+      "post": {
+        "tags": [
+          "Development ONLY"
+        ],
+        "summary": "Mock Resolve",
+        "operationId": "mock_resolve_api_v1_dev_withdrawals__withdrawal_id__resolve_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "withdrawal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Withdrawal Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 100,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveWithdrawal"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/businesses/{business_id}/summary": {
       "get": {
         "tags": [
@@ -2451,6 +2655,17 @@
             ],
             "title": "Fallback Icon"
           },
+          "asset_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Id"
+          },
           "updated_at": {
             "anyOf": [
               {
@@ -2534,6 +2749,7 @@
           },
           "data": {
             "type": "string",
+            "maxLength": 3500000,
             "minLength": 10,
             "title": "Data",
             "description": "Base64 encoded image data"
@@ -2708,7 +2924,6 @@
           "icon_url": {
             "type": "string",
             "maxLength": 500,
-            "minLength": 1,
             "title": "Icon Url"
           }
         },
@@ -3015,6 +3230,24 @@
           "password"
         ],
         "title": "Register"
+      },
+      "ResolveWithdrawal": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "PAID",
+              "FAILED"
+            ],
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "ResolveWithdrawal"
       },
       "SupplierCreate": {
         "properties": {

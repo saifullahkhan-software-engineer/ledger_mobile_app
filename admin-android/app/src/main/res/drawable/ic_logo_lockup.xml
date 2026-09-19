@@ -5,7 +5,7 @@
     android:viewportHeight="100">
     <!-- AT Brand circular mark -->
     <path
-        android:fillColor="#003D2B"
+        android:fillColor="@android:color/transparent"
         android:pathData="M50,50m-42,0a42,42 0 1,1 84,0a42,42 0 1,1 -84,0" />
     <path
         android:strokeColor="#E9BD55"
@@ -14,11 +14,17 @@
     <!-- White 'A' -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M32,70 L46,30 L54,30 L68,70 L58,70 L54,58 L44,58 L40,70 Z M46,50 L52,50 L49,40 Z" />
-    <!-- Gold 'T' -->
+        android:pathData="M32,70 L46,30 L54,30 L68,70 L58,70 L54,58 L44,58 L40,70 Z M46,50 L52,50 L49,40 Z"
+        android:strokeColor="#E9BD55"
+        android:strokeWidth="0.8"
+        android:strokeLineJoin="round" />
+    <!-- Gold 'T' with subtle white edge -->
     <path
         android:fillColor="#E9BD55"
-        android:pathData="M48,34 L76,34 L76,41 L65,41 L65,66 L58,66 L58,41 L48,41 Z" />
+        android:pathData="M48,34 L76,34 L76,41 L65,41 L65,66 L58,66 L58,41 L48,41 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="0.8"
+        android:strokeLineJoin="round" />
     <!-- Sprout leaf decoration -->
     <path
         android:fillColor="#168540"

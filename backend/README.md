@@ -94,6 +94,47 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 Run commands from `backend/`, not the repository root. The API does not auto-create tables on startup. `init-db` is for the initial schema; it **does not migrate existing tables** after future schema changes.
 
+### Upgrading an existing database for screen icons
+
+If `/api/v1/admin/icons` or saving an icon returns **500** with
+`relation "app_icons" does not exist`, the database predates the screen-icon
+feature. Restarting Uvicorn alone does not update the schema.
+
+Back up the database and stop the API (Ctrl+C). With your virtual environment
+activated, run these commands **from `backend/`** in PowerShell or a shell:
+
+```powershell
+python -m app.manage upgrade-db
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+The upgrade uses the same `DATABASE_URL` / `backend/.env` as the API. Ensure it
+points to the affected database; an exported `DATABASE_URL` overrides `.env`.
+It creates `app_icons` with its unique key index if absent and adds
+`businesses.icon_url` if absent. It is safe to rerun: existing accounts,
+businesses, financial records and icon settings are not reset. Run only one
+upgrade process at a time, with database schema-owner permissions. This is a
+targeted additive upgrade, not a general migration framework. For an empty
+database, use `init-db` first instead.
+
+For Docker Compose, use:
+
+```bash
+docker compose stop api
+docker compose build api
+docker compose run --rm api python -m app.manage upgrade-db
+docker compose up -d api
+```
+
+Reopen **Screen icons**, then retry saving the icon. An upload can return 200
+while saving returns 500: uploading writes a file, whereas saving the icon
+configuration needs the missing table. Do not delete the database or run
+`docker compose down -v` to fix this.
+
+`Enable-AppBackgroundTaskDiagnosticLog` is unrelated to FastAPI/PostgreSQL and
+is not required to run this app. Its registry-access error does not cause the
+missing-table error; you can omit that command.
+
 ## 3. Test using Swagger (no coding needed)
 
 1. Open `/docs` and execute `POST /api/v1/auth/login` with the owner phone/password entered during seed.
@@ -284,7 +325,8 @@ UUIDs identify entities; monetary columns are BIGINT, quantity columns NUMERIC. 
 - Physical Android phone → your computer's LAN IP, e.g. `http://192.168.1.20:8000`, on the same Wi-Fi. Permit port 8000 in your firewall. Android development builds may need a debug-only cleartext-network policy; use HTTPS in production.
 - Hosted clients/previews → the API's public HTTPS host. Never use `localhost` from a remote browser to reach this server. Native clients do not need CORS. No wildcard CORS policy is configured; a future web UI should use an allowlisted origin or a same-origin reverse proxy.
 - `JWT_SECRET` error: create `.env` in `backend/`, set a random 32+ character secret, and run from that directory.
-- Missing table / `write_lock`: run `python -m app.manage init-db` (or its Docker equivalent).
+- Missing `app_icons` table on an existing database: stop the API and run `python -m app.manage upgrade-db`, as described above.
+- Uninitialized database / missing `write_lock`: run `python -m app.manage init-db` (or its Docker equivalent).
 - `401`: log in again; tokens expire after one hour. Password change/logout revokes all previously issued tokens for that account.
 - `403`: check role, business assignment or KYC. Investors cannot use admin endpoints.
 - `404` on `/dev/...`: mock routes intentionally do not exist outside development with mock payments enabled.

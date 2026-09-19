@@ -1,36 +1,24 @@
 import os
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, event, select, text
+from sqlalchemy import create_engine, event, inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
+def ensure_business_icon_column_on_connection(conn):
+    """Add the nullable icon column without changing existing business records."""
+    columns = inspect(conn).get_columns("businesses")
+    if not any(column["name"] == "icon_url" for column in columns):
+        clause = "IF NOT EXISTS " if conn.dialect.name == "postgresql" else ""
+        conn.execute(text(f"ALTER TABLE businesses ADD COLUMN {clause}icon_url VARCHAR(500)"))
+
+
 async def ensure_business_icon_column():
     """Backfill legacy Postgres/SQLite databases that predate the business icon column."""
-    if engine.dialect.name == "postgresql":
-        async with engine.begin() as conn:
-            exists = await conn.execute(
-                text(
-                    """
-                    SELECT 1
-                    FROM information_schema.columns
-                    WHERE table_name = 'businesses' AND column_name = 'icon_url'
-                    LIMIT 1
-                    """
-                )
-            )
-            if not exists.scalar_one_or_none():
-                await conn.execute(
-                    text("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS icon_url VARCHAR(500)")
-                )
-        return
+    async with engine.begin() as conn:
+        await conn.run_sync(ensure_business_icon_column_on_connection)
 
-    if engine.dialect.name == "sqlite":
-        async with engine.begin() as conn:
-            rows = (await conn.execute(text("PRAGMA table_info(businesses)"))).fetchall()
-            if not any(row[1] == "icon_url" for row in rows):
-                await conn.execute(text("ALTER TABLE businesses ADD COLUMN icon_url VARCHAR(500)"))
 
 load_dotenv()
 URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./ahsan.db")

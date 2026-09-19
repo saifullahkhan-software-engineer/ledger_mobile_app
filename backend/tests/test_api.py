@@ -1,8 +1,8 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from sqlalchemy import select, func, text
+from sqlalchemy import inspect, select, func, text
 import pytest
-from app.db import Session, engine, ensure_business_icon_column
+from app.db import Session, engine, sync_engine, ensure_business_icon_column
 from app.models import Posting, Ownership, Settlement
 from app.services import today
 
@@ -34,28 +34,12 @@ def daily(
     )
 
 
-def test_legacy_business_schema_adds_missing_icon_column():
-    with Session.begin() as db:
-        db.execute(text("DROP TABLE IF EXISTS businesses"))
-        db.execute(
-            text(
-                """
-                CREATE TABLE businesses (
-                    id VARCHAR(36) PRIMARY KEY,
-                    name VARCHAR(120),
-                    type VARCHAR(20),
-                    total_shares INTEGER,
-                    share_price BIGINT,
-                    stock NUMERIC(18, 3),
-                    stock_cost BIGINT
-                )
-                """
-            )
-        )
+def test_legacy_business_schema_adds_missing_icon_column(client):
+    with sync_engine.begin() as conn:
+        conn.execute(text("ALTER TABLE businesses DROP COLUMN icon_url"))
     asyncio.run(ensure_business_icon_column())
-    with Session.begin() as db:
-        cols = db.execute(text("PRAGMA table_info(businesses)")).fetchall()
-        assert any(col[1] == "icon_url" for col in cols)
+    asyncio.run(ensure_business_icon_column())
+    assert "icon_url" in {col["name"] for col in inspect(sync_engine).get_columns("businesses")}
 
 
 def test_daily_settlement_and_idempotency(client, admin_headers, investor_headers):
@@ -329,7 +313,7 @@ def test_concurrent_share_purchases(client, investor_headers):
 )
 def test_database_history_immutable(client, investor_headers):
     with pytest.raises(Exception, match="append-only"):
-        with engine.begin() as conn:
+        with sync_engine.begin() as conn:
             conn.execute(text("DELETE FROM postings"))
 
 

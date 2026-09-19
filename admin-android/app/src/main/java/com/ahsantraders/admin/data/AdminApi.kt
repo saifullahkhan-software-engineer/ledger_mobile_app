@@ -32,6 +32,12 @@ interface AdminApi {
     @GET("api/v1/admin/settlements") suspend fun settlements(@Query("business_id") id: String, @Query("offset") offset: Int, @Query("limit") limit: Int = 50): List<Settlement>
     @GET("api/v1/admin/users") suspend fun users(@Query("role") role: String? = null, @Query("search") search: String? = null, @Query("limit") limit: Int = 100, @Query("offset") offset: Int = 0): List<UserOut>
     @GET("api/v1/admin/users/{user_id}") suspend fun userDetail(@Path("user_id") id: String): UserOut
+    @POST("api/v1/admin/managers") suspend fun createManager(@Body body: Map<String, String>): JsonObject
+    @POST("api/v1/auth/register") suspend fun register(@Body body: Map<String, String>): JsonObject
+    @PUT("api/v1/admin/businesses/{business_id}/managers/{manager_id}") suspend fun assignManager(@Path("business_id") businessId: String, @Path("manager_id") managerId: String): JsonObject
+    @DELETE("api/v1/admin/businesses/{business_id}/managers/{manager_id}") suspend fun unassignManager(@Path("business_id") businessId: String, @Path("manager_id") managerId: String): JsonObject
+    @PUT("api/v1/admin/users/{user_id}/role") suspend fun updateRole(@Path("user_id") userId: String, @Body body: Map<String, String>): UserOut
+    @POST("api/v1/admin/users/{user_id}/verify-kyc") suspend fun verifyKyc(@Path("user_id") userId: String): UserOut
     @GET("api/v1/admin/icons") suspend fun icons(): List<AppIconItem>
     @PUT("api/v1/admin/icons/{key}") suspend fun setIcon(@Path("key") key: String, @Body body: AppIconUpdateReq): AppIconItem
     @PUT("api/v1/admin/businesses/{business_id}/icon") suspend fun setBusinessIcon(@Path("business_id") id: String, @Body body: BusinessIconUpdateReq): JsonObject

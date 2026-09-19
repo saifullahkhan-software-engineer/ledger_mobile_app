@@ -46,7 +46,11 @@ import kotlinx.coroutines.launch
                 Brand(true)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(Icons.Default.AccountCircle, null, tint = Color.White, modifier = Modifier.size(42.dp))
-                    Column { Text(s.user.name, color = Color.White, fontWeight = FontWeight.Bold); Text(s.user.role, color = Gold, fontSize = 11.sp) }
+                    Column {
+                        Text(s.user.name, color = Color.White, fontWeight = FontWeight.Bold)
+                        Text(s.user.phone, color = Color.White.copy(alpha = .75f), fontSize = 12.sp)
+                        Text(s.user.role, color = Gold, fontSize = 11.sp)
+                    }
                 }
             }
             Column(Modifier.verticalScroll(rememberScrollState()).weight(1f).padding(12.dp)) {
@@ -54,6 +58,11 @@ import kotlinx.coroutines.launch
                 s.businesses.forEach { b -> NavigationDrawerItem(label = { Text(b.name) }, selected = s.business?.id == b.id && s.page == Page.BUSINESS,
                     icon = { SectorIcon(b.type, tint = sectorColor(b.type), modifier = Modifier.size(24.dp)) }, onClick = { scope.launch { drawer.close() }; vm.go(Page.BUSINESS, b) }) }
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                if (s.user?.role == "SUPERADMIN") {
+                    NavigationDrawerItem(label = { Text(tr("Users")) }, selected = s.page in listOf(Page.USERS, Page.USER, Page.ADD_USER), icon = { Icon(Icons.Default.People, null) }, onClick = { scope.launch { drawer.close() }; vm.openUsers() })
+                    NavigationDrawerItem(label = { Text(tr("Screen icons")) }, selected = s.page == Page.ICONS, icon = { Icon(Icons.Default.Image, null) }, onClick = { scope.launch { drawer.close() }; vm.openIcons() })
+                    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                }
                 NavigationDrawerItem(label = { Text(tr("Reports")) }, selected = s.page == Page.REPORTS, icon = { Icon(Icons.Default.BarChart, null) }, onClick = { scope.launch { drawer.close() }; vm.go(Page.REPORTS) })
                 NavigationDrawerItem(label = { Text(tr("Settings")) }, selected = s.page == Page.SETTINGS, icon = { Icon(Icons.Default.Settings, null) }, onClick = { scope.launch { drawer.close() }; vm.go(Page.SETTINGS) })
                 NavigationDrawerItem(label = { Text(tr("Sign out")) }, selected = false, icon = { Icon(Icons.Default.Logout, null) }, onClick = { scope.launch { drawer.close() }; logout = true })
@@ -96,6 +105,10 @@ import kotlinx.coroutines.launch
                                 Page.BATCH -> BatchScreen(s, vm) { startBatch = true }
                                 Page.REPORTS -> ReportsScreen(s, vm)
                                 Page.SETTINGS -> SettingsScreen(s, vm) { logout = true }
+                                Page.USERS -> UsersScreen(s, vm)
+                                Page.USER -> UserDetailScreen(s, vm)
+                                Page.ADD_USER -> AddUserScreen(s, vm)
+                                Page.ICONS -> IconsScreen(s, vm)
                                 else -> SecondaryScreen(s, vm) { closeDay = it }
                             }
                             Spacer(Modifier.height(8.dp))
@@ -127,6 +140,7 @@ fun pageTitle(page: Page): String = when (page) {
     Page.HOME -> "Dashboard"; Page.BUSINESS -> "Business summary"; Page.LEDGER, Page.DAY -> "Transaction history"
     Page.STOCK -> "Stock"; Page.SUPPLIERS -> "Suppliers"; Page.BILLS -> "Supplier bills"; Page.EXPENSES -> "Expenses"
     Page.REPORTS -> "Reports"; Page.SETTINGS -> "Settings"; Page.BATCHES -> "Batches"; Page.BATCH -> "Batch history"; Page.SETTLEMENTS -> "Settlement history"
+    Page.USERS -> "Users & access"; Page.USER -> "User details"; Page.ADD_USER -> "Add user"; Page.ICONS -> "Screen icons"
 }
 @Composable fun LoginScreen(s: AdminState, vm: AdminViewModel, onLoginSuccess: (() -> Unit)? = null) {
     var server by rememberSaveable { mutableStateOf(vm.server) }
@@ -134,6 +148,8 @@ fun pageTitle(page: Page): String = when (page) {
     var password by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(false) }
     val busy = s.loading || s.saving
+    // Successful login populates s.user; move on to the dashboard then.
+    LaunchedEffect(s.user) { if (s.user != null) onLoginSuccess?.invoke() }
     Column(Modifier.fillMaxSize().background(Paper).navigationBarsPadding().verticalScroll(rememberScrollState()).imePadding()) {
         Column(Modifier.fillMaxWidth().background(Forest).statusBarsPadding().padding(horizontal = 28.dp, vertical = 40.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
             Brand()
@@ -145,7 +161,7 @@ fun pageTitle(page: Page): String = when (page) {
             s.error?.let { Banner(it, true, vm::dismissError) }
             s.notice?.let { Banner(it, false, vm::dismissNotice) }
             OutlinedTextField(server, { server = it }, label = { Text(tr("Server address")) }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), supportingText = { Text("Emulator: http://10.0.2.2:8000 · Phone: computer LAN IP") })
-            OutlinedTextField(phone, { phone = it }, label = { Text(tr("Phone number")) }, placeholder = { Text("+923001234567") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
+            OutlinedTextField(phone, { phone = it }, label = { Text(tr("Phone number")) }, placeholder = { Text("03001234567") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), supportingText = { Text("0300… or +92300… both work") })
             OutlinedTextField(password, { password = it }, label = { Text(tr("Password")) }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { IconButton(onClick = { visible = !visible }) { Icon(if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility, "Toggle password visibility") } })
             Button(onClick = { vm.login(server, phone, password) }, modifier = Modifier.fillMaxWidth().height(54.dp), enabled = !busy) {
                 if (busy) CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp) else Text(tr("Sign in"))

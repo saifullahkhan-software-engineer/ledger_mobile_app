@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
 
-import '../core/l10n/l10n_ext.dart';
-import '../core/theme/app_theme.dart';
 import '../models/app_language.dart';
+import '../services/api_service.dart';
+import '../services/session_store.dart';
 import '../widgets/ahsan_traders_logo.dart';
 import '../widgets/custom_icons.dart';
 import '../widgets/language_selector.dart';
-import 'customers_view.dart';
+import 'add_user_view.dart';
 import 'icon_manager_view.dart';
 import 'users_view.dart';
 
-// Re-export AhsanColors for convenience
+/// Shared brand palette.
 class AhsanColors {
   AhsanColors._();
-  
+
   static const Color primaryGreen = Color(0xFF1B5E20);
   static const Color golden = Color(0xFFFFD700);
   static const Color lightGreen = Color(0xFF4CAF50);
@@ -21,15 +21,19 @@ class AhsanColors {
   static const Color background = Color(0xFFF5F5F5);
 }
 
-/// Top-level navigation shell. Super Admin can manage businesses, view all users,
-/// and add custom images/icons for the mobile screen cards and actions.
+/// Top-level navigation shell. Wires the real backend session into the
+/// users / icons screens and lets the superadmin sign out.
+///
+/// Business order everywhere: Chicken → LPG (Gas) → Broiler (Poultry).
 class HomeView extends StatefulWidget {
   const HomeView({
     super.key,
+    required this.session,
     required this.language,
     this.onLanguageChanged,
   });
 
+  final Session session;
   final AppLanguage language;
   final ValueChanged<AppLanguage>? onLanguageChanged;
 
@@ -38,8 +42,46 @@ class HomeView extends StatefulWidget {
 }
 
 class _HomeViewState extends State<HomeView> {
-  // Dynamic icons configured by Super Admin for the mobile screen
+  late final ApiService _api = ApiService(
+    baseUrl: widget.session.baseUrl,
+    token: widget.session.token,
+  );
+
+  // Dynamic icons configured by the Super Admin for the mobile screens.
   final Map<String, String> _screenIcons = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadIcons();
+  }
+
+  /// Turns a stored image path into a full URL. Server paths returned by the
+  /// upload endpoint look like `/uploads/icons/x.png` and need the base URL.
+  String _resolve(String? url) {
+    if (url == null || url.isEmpty) return '';
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    if (url.startsWith('/')) return '${_api.normalizedBase}$url';
+    return url;
+  }
+
+  Future<void> _loadIcons() async {
+    try {
+      final items = await _api.icons();
+      final map = <String, String>{};
+      for (final item in items) {
+        final key = item['key'] as String?;
+        final url = item['image_url'] as String?;
+        if (key != null && url != null && url.isNotEmpty) {
+          map[key] = url;
+        }
+      }
+      if (!mounted) return;
+      setState(() => _screenIcons.addAll(map));
+    } on ApiException {
+      // Optional: icons fail to load only if the server is unreachable.
+    }
+  }
 
   void _updateIcon(String key, String imageUrl) {
     setState(() {
@@ -55,7 +97,10 @@ class _HomeViewState extends State<HomeView> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => const UsersView(isSuperAdmin: true),
+        builder: (_) => ManagersView(
+          api: _api,
+          isSuperAdmin: widget.session.isSuperAdmin,
+        ),
       ),
     );
   }
@@ -65,11 +110,48 @@ class _HomeViewState extends State<HomeView> {
       context,
       MaterialPageRoute(
         builder: (_) => IconManagerView(
+          api: _api,
           currentIcons: _screenIcons,
           onIconUpdated: _updateIcon,
         ),
       ),
     );
+  }
+
+  Future<void> _signOut() async {
+    try {
+      await _api.logout();
+    } catch (_) {
+      // Even if the server is unreachable, clear the local session.
+    }
+    await SessionStore().clear();
+    if (!mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil('/welcome', (r) => false);
+  }
+
+  Future<void> _addUser() async {
+    try {
+      final businesses = await _api.businesses();
+      if (!mounted) return;
+      final created = await Navigator.of(context).push<Map<String, dynamic>>(
+        MaterialPageRoute(
+          builder: (_) => AddUserScreen(
+            api: _api,
+            businesses: businesses,
+          ),
+        ),
+      );
+      if (created != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${created['name']} added')),
+        );
+      }
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message)),
+      );
+    }
   }
 
   @override
@@ -79,23 +161,21 @@ class _HomeViewState extends State<HomeView> {
         leading: Builder(
           builder: (context) => IconButton(
             icon: const Icon(Icons.menu),
-            onPressed: () {
-              Scaffold.of(context).openDrawer();
-            },
+            onPressed: () => Scaffold.of(context).openDrawer(),
           ),
         ),
         title: Row(
           children: [
-            // Custom or default logo in app bar
-            if (_screenIcons['app_logo'] != null && _screenIcons['app_logo']!.isNotEmpty)
+            if (_resolve(_screenIcons['app_logo']).isNotEmpty)
               ClipRRect(
                 borderRadius: BorderRadius.circular(15),
                 child: Image.network(
-                  _screenIcons['app_logo']!,
+                  _resolve(_screenIcons['app_logo']),
                   width: 30,
                   height: 30,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const AhsanTradersLogo(size: 30, showText: false),
+                  errorBuilder: (_, __, ___) =>
+                      const AhsanTradersLogo(size: 30, showText: false),
                 ),
               )
             else
@@ -110,11 +190,15 @@ class _HomeViewState extends State<HomeView> {
             tooltip: 'Customize Screen Icons',
             onPressed: _navigateToIconManager,
           ),
+          if (widget.session.isSuperAdmin)
+            IconButton(
+              icon: const Icon(Icons.person_add_alt_1),
+              tooltip: 'Add User',
+              onPressed: _addUser,
+            ),
           IconButton(
             icon: const Icon(Icons.notifications_none),
-            onPressed: () {
-              // Handle notifications
-            },
+            onPressed: () {},
           ),
           if (widget.onLanguageChanged != null)
             Padding(
@@ -130,7 +214,9 @@ class _HomeViewState extends State<HomeView> {
       ),
       drawer: _buildDrawer(context),
       body: DashboardView(
-        screenIcons: _screenIcons,
+        screenIcons: _screenIcons
+            .map((k, v) => MapEntry(k, _resolve(v))),
+        isSuperAdmin: widget.session.isSuperAdmin,
         onNavigateToUsers: _navigateToUsers,
         onNavigateToIcons: _navigateToIconManager,
         onUpdateIcon: _updateIcon,
@@ -145,37 +231,37 @@ class _HomeViewState extends State<HomeView> {
         padding: EdgeInsets.zero,
         children: [
           DrawerHeader(
-            decoration: const BoxDecoration(
-              color: AhsanColors.primaryGreen,
-            ),
+            decoration: const BoxDecoration(color: AhsanColors.primaryGreen),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    if (_screenIcons['app_logo'] != null && _screenIcons['app_logo']!.isNotEmpty)
+                    if (_resolve(_screenIcons['app_logo']).isNotEmpty)
                       ClipRRect(
                         borderRadius: BorderRadius.circular(30),
                         child: Image.network(
-                          _screenIcons['app_logo']!,
+                          _resolve(_screenIcons['app_logo']),
                           width: 56,
                           height: 56,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => const AhsanTradersLogo(size: 56, showText: false),
+                          errorBuilder: (_, __, ___) =>
+                              const AhsanTradersLogo(size: 56, showText: false),
                         ),
                       )
                     else
                       const AhsanTradersLogo(size: 56, showText: false),
                     const Spacer(),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
                         color: AhsanColors.golden,
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Text(
-                        'SUPER ADMIN',
-                        style: TextStyle(
+                      child: Text(
+                        widget.session.role,
+                        style: const TextStyle(
                           color: AhsanColors.primaryGreen,
                           fontWeight: FontWeight.bold,
                           fontSize: 10,
@@ -185,16 +271,16 @@ class _HomeViewState extends State<HomeView> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                const Text(
-                  'Ahsan Khan',
-                  style: TextStyle(
+                Text(
+                  widget.session.name,
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
                 Text(
-                  '+923007117755',
+                  widget.session.phone,
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.8),
                     fontSize: 14,
@@ -203,25 +289,20 @@ class _HomeViewState extends State<HomeView> {
               ],
             ),
           ),
-          ListTile(
-            leading: const Icon(Icons.people, color: AhsanColors.primaryGreen),
-            title: const Text('Users & Access'),
-            subtitle: const Text('Manage investors and managers'),
-            trailing: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.green.shade100,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Text('All Users', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+          if (widget.session.isSuperAdmin)
+            ListTile(
+              leading: const Icon(Icons.people, color: AhsanColors.primaryGreen),
+              title: const Text('Users & Access'),
+              subtitle: const Text('Manage investors and managers'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.pop(context);
+                _navigateToUsers();
+              },
             ),
-            onTap: () {
-              Navigator.pop(context);
-              _navigateToUsers();
-            },
-          ),
           ListTile(
-            leading: const Icon(Icons.photo_library, color: AhsanColors.primaryGreen),
+            leading:
+                const Icon(Icons.photo_library, color: AhsanColors.primaryGreen),
             title: const Text('Mobile Screen Icons'),
             subtitle: const Text('Add & edit icons shown on screen'),
             trailing: const Icon(Icons.chevron_right),
@@ -234,37 +315,30 @@ class _HomeViewState extends State<HomeView> {
           ListTile(
             leading: const Icon(Icons.store),
             title: const Text('Businesses'),
-            onTap: () {
-              Navigator.pop(context);
-            },
+            onTap: () => Navigator.pop(context),
           ),
           ListTile(
             leading: const Icon(Icons.inventory),
             title: const Text('Stock'),
-            onTap: () {
-              Navigator.pop(context);
-            },
+            onTap: () => Navigator.pop(context),
           ),
           ListTile(
             leading: const Icon(Icons.receipt_long),
             title: const Text('Reports'),
-            onTap: () {
-              Navigator.pop(context);
-            },
+            onTap: () => Navigator.pop(context),
           ),
           const Divider(),
           ListTile(
             leading: const Icon(Icons.settings),
             title: const Text('Settings'),
-            onTap: () {
-              Navigator.pop(context);
-            },
+            onTap: () => Navigator.pop(context),
           ),
           ListTile(
-            leading: const Icon(Icons.logout),
-            title: const Text('Logout'),
+            leading: const Icon(Icons.logout, color: Colors.red),
+            title: const Text('Logout', style: TextStyle(color: Colors.red)),
             onTap: () {
               Navigator.pop(context);
+              _signOut();
             },
           ),
         ],
@@ -275,6 +349,7 @@ class _HomeViewState extends State<HomeView> {
 
 class DashboardView extends StatelessWidget {
   final Map<String, String> screenIcons;
+  final bool isSuperAdmin;
   final VoidCallback onNavigateToUsers;
   final VoidCallback onNavigateToIcons;
   final Function(String key, String imageUrl) onUpdateIcon;
@@ -282,6 +357,7 @@ class DashboardView extends StatelessWidget {
   const DashboardView({
     super.key,
     required this.screenIcons,
+    required this.isSuperAdmin,
     required this.onNavigateToUsers,
     required this.onNavigateToIcons,
     required this.onUpdateIcon,
@@ -295,23 +371,16 @@ class DashboardView extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Welcome section
             _buildWelcomeSection(),
             const SizedBox(height: 20),
-
-            // Super Admin Quick Control Strip
-            _buildSuperAdminQuickStrip(context),
-            const SizedBox(height: 20),
-            
-            // Summary cards
+            if (isSuperAdmin) ...[
+              _buildSuperAdminQuickStrip(context),
+              const SizedBox(height: 20),
+            ],
             _buildSummaryCards(),
             const SizedBox(height: 24),
-            
-            // Business cards
             _buildBusinessCards(context),
             const SizedBox(height: 24),
-            
-            // Quick actions
             _buildQuickActions(),
           ],
         ),
@@ -320,24 +389,21 @@ class DashboardView extends StatelessWidget {
   }
 
   Widget _buildWelcomeSection() {
-    return Column(
+    return const Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Welcome, Ahsan Khan',
+        Text(
+          'Welcome!',
           style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold,
             color: AhsanColors.primaryGreen,
           ),
         ),
-        const SizedBox(height: 4),
+        SizedBox(height: 4),
         Text(
-          'Super Admin Dashboard · Full System Authority',
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.grey[600],
-          ),
+          'Ahsan Traders Dashboard',
+          style: TextStyle(fontSize: 14, color: Colors.grey),
         ),
       ],
     );
@@ -358,28 +424,33 @@ class DashboardView extends StatelessWidget {
               onTap: onNavigateToUsers,
               borderRadius: BorderRadius.circular(10),
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                padding:
+                    const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(10),
                   boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4),
+                    BoxShadow(
+                        color: Colors.black.withOpacity(0.04), blurRadius: 4),
                   ],
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.people, color: AhsanColors.primaryGreen, size: 24),
+                    const Icon(Icons.people,
+                        color: AhsanColors.primaryGreen, size: 24),
                     const SizedBox(width: 10),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
                           'See Users',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 13),
                         ),
                         Text(
                           'Investors & Admins',
-                          style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                          style:
+                              TextStyle(fontSize: 11, color: Colors.grey[600]),
                         ),
                       ],
                     ),
@@ -394,28 +465,33 @@ class DashboardView extends StatelessWidget {
               onTap: onNavigateToIcons,
               borderRadius: BorderRadius.circular(10),
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                padding:
+                    const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(10),
                   boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4),
+                    BoxShadow(
+                        color: Colors.black.withOpacity(0.04), blurRadius: 4),
                   ],
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.add_photo_alternate, color: AhsanColors.primaryGreen, size: 24),
+                    const Icon(Icons.add_photo_alternate,
+                        color: AhsanColors.primaryGreen, size: 24),
                     const SizedBox(width: 10),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
                           'Add Image/Icon',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 13),
                         ),
                         Text(
                           'Screen Icons',
-                          style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                          style:
+                              TextStyle(fontSize: 11, color: Colors.grey[600]),
                         ),
                       ],
                     ),
@@ -431,23 +507,23 @@ class DashboardView extends StatelessWidget {
 
   Widget _buildSummaryCards() {
     return Row(
-      children: [
+      children: const [
         Expanded(
           child: _SummaryCard(
             title: 'Total Sales (Today)',
             amount: 'Rs. 48,750',
-            customIcon: CustomIcons.coinStack(),
+            icon: Icons.paid,
             iconColor: Colors.green,
             percentage: '+12%',
             subtitle: 'vs yesterday',
           ),
         ),
-        const SizedBox(width: 12),
+        SizedBox(width: 12),
         Expanded(
           child: _SummaryCard(
             title: 'Total Profit (Today)',
             amount: 'Rs. 16,320',
-            customIcon: CustomIcons.barChart(),
+            icon: Icons.trending_up,
             iconColor: Colors.green,
             percentage: '+8%',
             subtitle: 'vs yesterday',
@@ -457,6 +533,7 @@ class DashboardView extends StatelessWidget {
     );
   }
 
+  // Business order: Chicken → LPG (Gas) → Broiler (Poultry Farm).
   Widget _buildBusinessCards(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -485,28 +562,28 @@ class DashboardView extends StatelessWidget {
           amount: 'Rs. 18,500',
           subtitle: 'Sales Today',
           iconUrl: screenIcons['business_chicken'],
-          customIcon: CustomIcons.chicken(),
+          fallbackIcon: Icons.fastfood,
           backgroundColor: Colors.red.shade700,
           onEditIcon: onNavigateToIcons,
         ),
         const SizedBox(height: 12),
         _BusinessCard(
-          title: 'Broiler Farming',
-          amount: 'Rs. 12,800',
+          title: 'LPG / Gas Business',
+          amount: 'Rs. 17,450',
           subtitle: 'Sales Today',
-          iconUrl: screenIcons['business_broiler'],
-          customIcon: CustomIcons.agriculture(),
-          backgroundColor: Colors.green.shade700,
+          iconUrl: screenIcons['business_lpg'],
+          fallbackIcon: Icons.local_fire_department,
+          backgroundColor: Colors.blue.shade700,
           onEditIcon: onNavigateToIcons,
         ),
         const SizedBox(height: 12),
         _BusinessCard(
-          title: 'LPG Business',
-          amount: 'Rs. 17,450',
+          title: 'Poultry Farm (Broiler)',
+          amount: 'Rs. 12,800',
           subtitle: 'Sales Today',
-          iconUrl: screenIcons['business_lpg'],
-          customIcon: CustomIcons.lpg(),
-          backgroundColor: Colors.blue.shade700,
+          iconUrl: screenIcons['business_broiler'],
+          fallbackIcon: Icons.agriculture,
+          backgroundColor: Colors.green.shade700,
           onEditIcon: onNavigateToIcons,
         ),
       ],
@@ -635,10 +712,7 @@ class _SummaryCard extends StatelessWidget {
               const SizedBox(width: 4),
               Text(
                 subtitle,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[600],
-                ),
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
               ),
             ],
           ),
@@ -652,8 +726,7 @@ class _BusinessCard extends StatelessWidget {
   final String title;
   final String amount;
   final String subtitle;
-  final IconData? icon;
-  final Widget? customIcon;
+  final IconData fallbackIcon;
   final String? iconUrl;
   final Color backgroundColor;
   final VoidCallback? onEditIcon;
@@ -662,8 +735,7 @@ class _BusinessCard extends StatelessWidget {
     required this.title,
     required this.amount,
     required this.subtitle,
-    this.icon,
-    this.customIcon,
+    required this.fallbackIcon,
     this.iconUrl,
     required this.backgroundColor,
     this.onEditIcon,
@@ -686,7 +758,6 @@ class _BusinessCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Icon shown on the mobile screen: dynamically rendered image if custom, or default vector icon
           Container(
             width: 50,
             height: 50,
@@ -702,11 +773,14 @@ class _BusinessCard extends StatelessWidget {
                       width: 50,
                       height: 50,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) =>
-                          customIcon ?? (icon != null ? Icon(icon, color: Colors.white, size: 24) : const SizedBox.shrink()),
+                      errorBuilder: (_, __, ___) => Icon(
+                        fallbackIcon,
+                        color: Colors.white,
+                        size: 24,
+                      ),
                     ),
                   )
-                : (customIcon ?? (icon != null ? Icon(icon, color: Colors.white, size: 24) : null)),
+                : Icon(fallbackIcon, color: Colors.white, size: 24),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -732,10 +806,7 @@ class _BusinessCard extends StatelessWidget {
                 ),
                 Text(
                   subtitle,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                 ),
               ],
             ),
@@ -780,7 +851,10 @@ class _QuickAction extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
             ),
             child: Center(
-              child: customIcon ?? (icon != null ? Icon(icon, color: AhsanColors.primaryGreen, size: 24) : null),
+              child: customIcon ??
+                  (icon != null
+                      ? Icon(icon, color: AhsanColors.primaryGreen, size: 24)
+                      : null),
             ),
           ),
           const SizedBox(height: 8),
@@ -819,26 +893,15 @@ class CustomBottomNavigationBar extends StatelessWidget {
         selectedItemColor: AhsanColors.primaryGreen,
         unselectedItemColor: Colors.grey,
         items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
           BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Home',
-          ),
+              icon: Icon(Icons.attach_money), label: 'Sales'),
           BottomNavigationBarItem(
-            icon: Icon(Icons.attach_money),
-            label: 'Sales',
-          ),
+              icon: Icon(Icons.account_balance_wallet), label: 'Expenses'),
           BottomNavigationBarItem(
-            icon: Icon(Icons.account_balance_wallet),
-            label: 'Expenses',
-          ),
+              icon: Icon(Icons.assessment), label: 'Reports'),
           BottomNavigationBarItem(
-            icon: Icon(Icons.assessment),
-            label: 'Reports',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.more_horiz),
-            label: 'More',
-          ),
+              icon: Icon(Icons.more_horiz), label: 'More'),
         ],
       ),
     );

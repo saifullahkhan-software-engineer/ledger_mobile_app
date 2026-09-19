@@ -18,8 +18,12 @@ An Admin-first implementation of the supplied screen reference, using Kotlin, Je
 - Settlement history, profile name/language editing, password change and logout.
 - Core navigation/form labels in English/Urdu, RTL layout, Unicode user input preserved. Supporting explanations, server errors and some confirmations remain English.
 - Loading, empty, validation, connection-error and expired-session states. User-triggered refresh and paginated history lists.
-- Android Keystore-encrypted session token. No stored passwords, network payload logs, hardcoded credentials or demo-data fallback.
+- Keystore-encrypted session token. No stored passwords, network payload logs, hardcoded credentials or demo-data fallback.
 - Exact rupee-to-paisa conversion and persistent idempotency keys for supported financial commands.
+- Owner-only Users & Access module: list/search users, add managers (with one or more business assignments) or investors, change roles, assign/remove businesses, and verify investor KYC.
+- Owner-only Screen icons module: set the image URL for each mobile screen (app logo, business cards, quick actions), saved to the backend.
+- Drawer shows the signed-in admin's name, phone and role; owner-only entries appear only for SUPERADMIN.
+- Phone inputs accept local (0300…), +92… and 92… formats on login and add-user; they are normalized to E.164 before sending.
 
 The app uses the existing backend's financial policies; it does not reimplement settlement calculations on the device. All changes require a server response. It is **not offline-first**: there is no offline transaction queue or persistent data cache.
 
@@ -220,6 +224,6 @@ Both enforce existing business permissions. Existing database schema is unchange
 
 ## Deliberate boundaries
 
-This is the Admin app only. An Investor Android app is still separate future work. Real OTP/KYC, gateway transfers, push notifications, customer receivables, supplier payable balances, management-user provisioning UI, share trading and production compliance remain outside this client delivery. Owner/manager provisioning can use backend Swagger.
+This is the Admin app only. An Investor Android app is still separate future work. Real OTP, actual KYC evidence review (the app sets the verification flag for development), gateway transfers, push notifications, customer receivables, supplier payable balances, share trading and production compliance remain outside this client delivery.
 
 Close/harvest have confirmation dialogs but no reopen/reversal workflow because the backend does not provide one. Daily losses, unsold equity and batch funding follow the policies documented in `backend/README.md`; those policies require approval before real-money use.

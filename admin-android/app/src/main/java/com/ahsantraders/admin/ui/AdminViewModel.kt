@@ -132,6 +132,7 @@ class AdminViewModel(private val repo: AdminRepository) : ViewModel() {
                 val detail = api.userDetail(requireNotNull(s.userDetail).id)
                 updateState { it.copy(userDetail = detail) }
             }
+            Page.ADD_USER -> Unit
             Page.ICONS -> {
                 val rows = api.icons()
                 updateState { it.copy(icons = rows) }

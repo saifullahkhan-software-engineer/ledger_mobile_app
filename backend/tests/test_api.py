@@ -603,7 +603,9 @@ def test_superadmin_users_and_mobile_icons(client, admin_headers, investor_heade
     )
     assert r_upload.status_code == 200, r_upload.text
     uploaded_url = r_upload.json()["image_url"]
-    assert uploaded_url.startswith("/uploads/icons/")
+    assert uploaded_url.startswith("/api/v1/images/")
+    fetched = client.get(uploaded_url)
+    assert fetched.status_code == 200 and fetched.headers["content-type"] == "image/png"
 
     # Superadmin sets mobile screen icon
     r_icon = client.put(

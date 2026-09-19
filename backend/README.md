@@ -10,11 +10,11 @@ Implemented: password authentication, roles and assigned-business authorization,
 
 ### Verification performed in the development sandbox
 
-- SQLite API/service integration tests, including Admin client contract coverage: **21 passed, 1 skipped**.
+- SQLite API/service integration tests, including Admin client contract coverage and the database-image flows (upload, exact-byte serving, MIME validation, malformed/oversized rejection, authorization, assignment/replacement/reset, shared-asset safety, list endpoints never loading image bytes, `migrate-images` legacy import/rerun/interruption paths and the `upgrade-db`/`migrate-images` CLI on old schemas): **41 passed, 1 skipped**.
 - Ordered Postman collection executed with Newman: **28 requests, 32 assertions passed**.
 - Tests include concurrent share purchases, concurrent withdrawals, concurrent duplicate settlements, rounding, duplicate-key conflicts, rollback, authorization, password revocation, stock valuation, and batch profit/loss.
 - The skipped test checks PostgreSQL append-only triggers. PostgreSQL/Docker execution was **not verified in this sandbox**: neither was installed, and system package installation failed. CI is configured to run the suite against PostgreSQL 16. Its remote result has not been observed.
-- Test dependencies currently emit two third-party deprecation warnings; tests pass.
+- Test dependencies currently emit third-party deprecation warnings; tests pass.
 
 ## 1. Recommended local run: Docker + PostgreSQL
 
@@ -94,28 +94,85 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 Run commands from `backend/`, not the repository root. The API does not auto-create tables on startup. `init-db` is for the initial schema; it **does not migrate existing tables** after future schema changes.
 
-### Upgrading an existing database for screen icons
+### Upgrading an existing database (screen icons + database image storage)
+
+Icon and business images are now stored as **binary data in the
+`image_assets` table** instead of files under `backend/uploads/`. Two
+explicit, repeatable operator commands perform the upgrade; `create_all` /
+`init-db` never alter existing tables, and restarting Uvicorn alone does not
+update the schema.
 
 If `/api/v1/admin/icons` or saving an icon returns **500** with
-`relation "app_icons" does not exist`, the database predates the screen-icon
-feature. Restarting Uvicorn alone does not update the schema.
+`relation "app_icons" does not exist`, `no such column: app_icons.asset_id`
+or similar, the database predates this release.
 
-Back up the database and stop the API (Ctrl+C). With your virtual environment
-activated, run these commands **from `backend/`** in PowerShell or a shell:
+**1. Back up the database, stop the API (Ctrl+C), and apply the schema
+upgrade.** With your virtual environment activated, run these commands
+**from `backend/`** in Windows PowerShell (the same commands work in
+macOS/Linux shells):
 
 ```powershell
+cd backend
+.\.venv\Scripts\Activate.ps1   # skip if already active
 python -m app.manage upgrade-db
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-The upgrade uses the same `DATABASE_URL` / `backend/.env` as the API. Ensure it
-points to the affected database; an exported `DATABASE_URL` overrides `.env`.
-It creates `app_icons` with its unique key index if absent and adds
-`businesses.icon_url` if absent. It is safe to rerun: existing accounts,
-businesses, financial records and icon settings are not reset. Run only one
-upgrade process at a time, with database schema-owner permissions. This is a
+`upgrade-db` creates `image_assets` and `app_icons` if absent and adds
+`businesses.icon_url`, `businesses.icon_asset_id` and `app_icons.asset_id`
+if absent. **No data is altered or deleted**, and it is safe to rerun:
+existing accounts, businesses, financial history and icon settings are
+preserved. It uses the same `DATABASE_URL` / `backend/.env` as the API — an
+exported `DATABASE_URL` (PowerShell: `$env:DATABASE_URL="…"`) overrides
+`.env`, so ensure it points at the affected database. Run one upgrade
+process at a time, with database schema-owner permissions. This is a
 targeted additive upgrade, not a general migration framework. For an empty
-database, use `init-db` first instead.
+database, use `python -m app.manage init-db` instead.
+
+**2. Import the legacy upload files into the database:**
+
+```powershell
+python -m app.manage migrate-images
+```
+
+This data migration reads local files referenced by `app_icons.image_url`
+and `businesses.icon_url` and stores their bytes in `image_assets`:
+
+- Relative `/uploads/…` paths and legacy absolute URLs whose **path** starts
+  with `/uploads/` (e.g. `http://192.168.1.20:8000/uploads/icons/x.png` or
+  `http://localhost:8000/uploads/…` left over from a LAN setup) are read
+  from the local uploads directory. **No HTTP request is ever made** —
+  absolute upload URLs are treated purely as local file references.
+- Other external URLs (`https://cdn.example.com/…`) are **preserved
+  unchanged** as legacy values. Copying third-party images into the database
+  is an explicit policy decision that this migration does not make for you.
+- Traversal attempts (`/uploads/../…`, back-slashes, paths escaping the
+  uploads root) are rejected and reported as `unsafe`, never followed.
+- Missing files, oversized files and files that fail content validation
+  (including legacy SVGs, which are no longer accepted) are reported under
+  `missing`/`unsupported` and their **existing references are kept**, so
+  nothing silently breaks.
+- Successfully imported rows get their `image_url`/`icon_url` rewritten to
+  the new serving URL (`/api/v1/images/{id}`) and their asset foreign key
+  set. Identical file contents produce **one shared asset** (SHA-256
+  dedupe), so two icons using the same file keep sharing one copy.
+
+The command prints a JSON report (`imported`, `reused`, `already_migrated`,
+`external`, `missing`, `unsupported`, `unsafe`) plus a summary line; treat
+any `missing`/`unsupported`/`unsafe` entries as action items.
+
+**Interruption and reruns:** each reference is imported in its own small
+transaction, so a interrupted run (Ctrl+C, crash, network loss to the
+database) leaves completed references migrated and the rest untouched — the
+old files are still in place, so nothing is lost. Just rerun the command:
+already-migrated rows are skipped (their URLs no longer point at
+`/uploads/`), and byte-identical content is matched by SHA-256 and reused,
+so **rerunning never creates duplicate assets**.
+
+**3. Start the API again:**
+
+```powershell
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
 
 For Docker Compose, use:
 
@@ -123,17 +180,26 @@ For Docker Compose, use:
 docker compose stop api
 docker compose build api
 docker compose run --rm api python -m app.manage upgrade-db
+docker compose run --rm api python -m app.manage migrate-images
 docker compose up -d api
 ```
 
-Reopen **Screen icons**, then retry saving the icon. An upload can return 200
-while saving returns 500: uploading writes a file, whereas saving the icon
-configuration needs the missing table. Do not delete the database or run
-`docker compose down -v` to fix this.
+The migration **never deletes the old files**. Once you have verified that
+every screen icon/brand logo/business icon renders correctly (check the
+Screen icons page in the admin app and `GET /api/v1/mobile/icons`), the
+leftover files under `backend/uploads/` are safe to remove manually; the
+`/uploads` static mount can stay as long as any preserved external refs or
+unmigrated files need it.
 
-`Enable-AppBackgroundTaskDiagnosticLog` is unrelated to FastAPI/PostgreSQL and
-is not required to run this app. Its registry-access error does not cause the
-missing-table error; you can omit that command.
+**Backups:** because image bytes now live in the database, your normal
+PostgreSQL backup (`pg_dump` / volume snapshots) automatically includes all
+previously migrated and newly uploaded icons — always take a database backup
+**before** deleting old files from `backend/uploads/`, and size future
+backups for the additional image data (≤ 2 MB per upload).
+
+`Enable-AppBackgroundTaskDiagnosticLog` is unrelated to FastAPI/PostgreSQL
+and is not required to run this app. Its registry-access error does not
+cause any of the errors above; you can omit that command.
 
 ## 3. Test using Swagger (no coding needed)
 
@@ -273,6 +339,40 @@ All paths in the table except `/health` are prefixed with `/api/v1`. Text is Uni
 13. **Funding limitation:** Business counterpart accounts can be negative when the operator supplies off-platform capital. There is no bank-liquidity reconciliation or solvency check. A posted dividend is an internal entitlement, not proof that external cash is available to withdraw.
 14. **Valuation:** Portfolio shows acquisition cost and realized profit/loss, not a live market valuation. ROI history is actual recorded P&L divided by offering capital, not a forecast or guaranteed yield. Open daily reports are provisional; broiler revenue/profit is recognized only when harvested, not smoothed into daily sales.
 
+### Icon and brand-image storage (database-backed)
+
+Uploaded screen icons, the brand/header logo and business icons are stored as
+**binary image bytes in the `image_assets` table** (PostgreSQL `BYTEA`;
+SQLAlchemy `LargeBinary`, which maps to a BLOB under SQLite for tests), never
+as base64 text and never as new files in `backend/uploads/`.
+
+- **Uploads** (`POST /api/v1/admin/icons/upload` multipart,
+  `POST /api/v1/admin/icons/upload-base64`) are SUPERADMIN-only. Both decode
+  at most 2 MB of image data with bounded reads (the base64 payload itself is
+  size-capped before decoding); the actual bytes are then decoded with Pillow
+  and only PNG, JPEG, WebP and ICO pass. Filename extensions and client MIME
+  types are ignored; SVG and other malformed/scriptable content is rejected.
+- **Serving:** `GET /api/v1/images/{id}` is public (like the legacy
+  `/uploads` files it replaces, so unauthenticated mobile clients can load
+  icons) and returns the exact stored bytes with the validated
+  `Content-Type`, correct `Content-Length`, `Cache-Control: public,
+  max-age=31536000, immutable`, `X-Content-Type-Options: nosniff` and a
+  content-hash `ETag` (304 revalidation supported). Unknown IDs return 404.
+- **Immutable assets:** replacements are new uploads with new IDs and URLs,
+  so aggressively cached images never serve stale content. An asset is only
+  deleted when no `app_icons.asset_id` or `businesses.icon_asset_id`
+  references it anymore (shared assets are safe); uploads that were never
+  assigned are retained until an explicit cleanup policy removes them.
+- **Compatibility:** rows keep their `image_url`/`icon_url` value — it simply
+  points at `/api/v1/images/{id}` for database-stored images. Plain URLs
+  (legacy `/uploads/…` files, approved external HTTPS links) still work as
+  before with a null asset reference. Lists (`/api/v1/admin/icons`,
+  `/api/v1/mobile/icons`, business lists) carry URLs only, never image
+  bytes; the binary column is deferred and never joined, so ordinary icon
+  and business queries do not read image data.
+- **Size budget:** each image is capped at 2 MB decoded bytes and
+  25 megapixels, bounding both storage and decoding cost.
+
 ## 8. Data model and code organization
 
 ```text
@@ -280,11 +380,12 @@ backend/
   app/
     db.py          database sessions and transaction lock
     models.py      SQLAlchemy tables
+    images.py      image validation, storage and legacy-file classification
     schemas.py     validated request contracts
     security.py    Argon2 passwords, expiring JWTs and role dependencies
     services.py    inventory, journal, idempotency and settlement logic
     main.py        API routes and reports
-    manage.py      explicit schema/owner initialization
+    manage.py      explicit schema/data migrations and owner initialization
   tests/           API, transaction and concurrency tests
   postman/         tested ordered request collection
   scripts/         API export generator
@@ -304,6 +405,7 @@ backend/
 | `settlements` | Unique source, exact ownership snapshot, principal, profit, payouts, retained amount |
 | `withdrawals` | Reserved withdrawal amount and pending/paid/failed lifecycle |
 | `idempotency` | User/operation/key scope, request hash and committed response |
+| `image_assets` | Uploaded icon/logo image bytes (deferred BLOB), validated MIME, original filename, size, SHA-256 and creation time; referenced by `app_icons.asset_id` and `businesses.icon_asset_id` |
 | `write_lock` | Cross-worker transaction serialization |
 
 UUIDs identify entities; monetary columns are BIGINT, quantity columns NUMERIC. Foreign keys enforce relationships. Unique constraints prevent duplicate business dates, batch dates, settlement sources and journal references. PostgreSQL triggers reject UPDATE/DELETE on financial history tables. Administrative DDL/table-owner permissions can bypass protections: provision a restricted runtime database role before production. Service code enforces balanced journal creation; direct database writes are unsupported.
@@ -325,7 +427,7 @@ UUIDs identify entities; monetary columns are BIGINT, quantity columns NUMERIC. 
 - Physical Android phone → your computer's LAN IP, e.g. `http://192.168.1.20:8000`, on the same Wi-Fi. Permit port 8000 in your firewall. Android development builds may need a debug-only cleartext-network policy; use HTTPS in production.
 - Hosted clients/previews → the API's public HTTPS host. Never use `localhost` from a remote browser to reach this server. Native clients do not need CORS. No wildcard CORS policy is configured; a future web UI should use an allowlisted origin or a same-origin reverse proxy.
 - `JWT_SECRET` error: create `.env` in `backend/`, set a random 32+ character secret, and run from that directory.
-- Missing `app_icons` table on an existing database: stop the API and run `python -m app.manage upgrade-db`, as described above.
+- Missing `app_icons`/`image_assets` tables or `asset_id` columns on an existing database: stop the API and run `python -m app.manage upgrade-db` (then `migrate-images` if legacy uploads exist), as described above.
 - Uninitialized database / missing `write_lock`: run `python -m app.manage init-db` (or its Docker equivalent).
 - `401`: log in again; tokens expire after one hour. Password change/logout revokes all previously issued tokens for that account.
 - `403`: check role, business assignment or KYC. Investors cannot use admin endpoints.

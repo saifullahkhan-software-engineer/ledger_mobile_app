@@ -260,6 +260,12 @@ class AdminViewModel(private val repo: AdminRepository) : ViewModel() {
         updateState { it.copy(icons = icons, notice = "Screen icon reverted to the default.") }
         loadPage()
     }
+    fun removeBusinessIcon(business: Business) = write {
+        repo.api.setBusinessIcon(business.id, BusinessIconUpdateReq(icon_url = ""))
+        val businesses = repo.api.businesses().sortedBy { businessOrdinal(it.type) }
+        updateState { it.copy(businesses = businesses, business = businesses.find { b -> b.id == business.id }, notice = "Business icon reverted to the default.") }
+        loadPage()
+    }
     private suspend fun runUpload(bytes: ByteArray, name: String): IconUploadResult {
         updateState { it.copy(uploading = true) }
         return try {

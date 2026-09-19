@@ -9,7 +9,10 @@ data class UserOut(val id: String, val phone: String, val name: String, val role
 data class AppIconItem(val id: String, val key: String, val label: String, val screen: String, val image_url: String, val fallback_icon: String? = null)
 data class AppIconUpdateReq(val label: String? = null, val screen: String = "dashboard", val image_url: String, val fallback_icon: String? = null)
 data class BusinessIconUpdateReq(val icon_url: String)
-data class IconUploadResult(val filename: String, val image_url: String)
+// image_url is a relative /api/v1/images/{id} serving URL; the bytes behind it
+// live in PostgreSQL. Extra metadata fields (id/content_type/size) are ignored
+// by older clients, so keep them optional.
+data class IconUploadResult(val filename: String, val image_url: String, val id: String? = null, val content_type: String? = null, val size: Long? = null)
 data class Base64IconUploadReq(val filename: String, val data: String)
 data class BusinessReport(val business_id: String, val name: String, val type: String, val revenue: Long, val cost_and_expenses: Long, val net_profit: Long, val open_days: Int)
 data class Previous(val total_sales: Long, val total_profit: Long)

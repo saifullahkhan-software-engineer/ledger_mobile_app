@@ -22,6 +22,15 @@ class ValidationTest {
             assertThrows(IllegalArgumentException::class.java) { moneyInput(text) }
         }
     }
+    @Test fun imageServingUrlsResolveAgainstConfiguredServer() {
+        // Relative database-image URLs must resolve against the configured
+        // backend, never a hardcoded host; absolute (legacy external) URLs pass through.
+        assertEquals("http://10.0.2.2:8000/api/v1/images/abc", absoluteUrl("http://10.0.2.2:8000", "/api/v1/images/abc"))
+        assertEquals("https://api.example.com/api/v1/images/abc", absoluteUrl("https://api.example.com/", "/api/v1/images/abc"))
+        assertEquals("https://cdn.example.com/x.png", absoluteUrl("http://10.0.2.2:8000", "https://cdn.example.com/x.png"))
+        assertEquals("", absoluteUrl("http://10.0.2.2:8000", null))
+        assertEquals("", absoluteUrl("http://10.0.2.2:8000", ""))
+    }
     @Test fun validatesCylindersAndKg() {
         assertEquals("1.125", quantityInput("1.125"))
         assertEquals("2", quantityInput("2", whole = true))

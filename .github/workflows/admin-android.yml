@@ -28,7 +28,19 @@ jobs:
           SDKMANAGER="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMANAGER" --licenses > /dev/null
           "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
-      - run: ./gradlew testDebugUnitTest lintDebug assembleDebug --stacktrace
+      - name: Gradle build and tests
+        run: |
+          set +e
+          ./gradlew testDebugUnitTest lintDebug assembleDebug --stacktrace > gradle.log 2>&1
+          code=$?
+          if [ $code -ne 0 ]; then
+            grep -E "^e: |FAILED|error:|A problem occurred|What went wrong|Caused by|Unresolved" gradle.log | tail -n 60 | while IFS= read -r line; do
+              esc=${line//'%'/'%25'}
+              esc=${esc//$'\r'/'%0D'}
+              printf '::error::%s\n' "$esc"
+            done
+            exit $code
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: ahsan-admin-debug

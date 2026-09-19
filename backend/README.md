@@ -1,6 +1,6 @@
 # Ahsan Traders — backend
 
-FastAPI backend for the Admin/Investor PRD, separate from the existing Flutter ledger app. **A separate Kotlin Admin client is now available in [`../admin-android/`](../admin-android/README.md). The original Flutter client remains separate; an Investor client is not implemented.**
+FastAPI backend for the Admin/Investor PRD. **The Kotlin Admin client lives in [`../admin-android/`](../admin-android/README.md); an Investor client is not implemented.**
 
 ## Delivery status
 

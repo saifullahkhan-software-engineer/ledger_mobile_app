@@ -1,6 +1,6 @@
 # Ahsan Traders — native Android Admin app
 
-**Open this `admin-android/` folder in Android Studio.** This is an independent Kotlin project, not the old Flutter project's `android/` subfolder.
+**Open this `admin-android/` folder in Android Studio.** This is an independent Kotlin project — the Ahsan Traders Admin app.
 
 An Admin-first implementation of the supplied screen reference, using Kotlin, Jetpack Compose Material 3 and MVVM. The green/gold branding, business-color cards, dashboard, drawer, bottom navigation, modules and settings follow the reference's visual direction. The AT mark is a locally drawn approximation, not an official supplied logo. No investor client is included in this delivery.
 
@@ -97,7 +97,7 @@ Check `http://127.0.0.1:8000/health` and `/docs` on your computer. Keep this ter
 
 ## 3. Open and run the Android app
 
-1. Android Studio → **Open** → select **`ledger_mobile_app/admin-android`**.
+1. Android Studio → **Open** → select **`admin-android`**.
 2. Wait for Gradle sync and SDK downloads to finish.
 3. Select the **app** run configuration and your emulator/device.
 4. Click **Run ▶**.
@@ -205,7 +205,7 @@ app/src/main/java/com/ahsantraders/admin/
     Theme.kt                  brand palette, core English/Urdu labels and direction
 ```
 
-No Hilt, code generation, WebView, Flutter embedding or bundled mock backend. The financial source of truth stays in FastAPI.
+No Hilt, code generation, WebView or bundled mock backend. The financial source of truth stays in FastAPI.
 
 ### Small backend additions
 

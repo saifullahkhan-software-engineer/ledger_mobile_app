@@ -4,6 +4,10 @@ import androidx.compose.ui.graphics.Color
 
 // AT Traders brand palette
 val BrandGreen = Color(0xFF003D2B)
+
+// Splash-only canvas color — the deeper forest green from the UI/UX design spec.
+// Layer 1 (system splash) and the logo mark use the same hex in the XML resources.
+val SplashForestGreen = Color(0xFF0A3B22)
 val BrandGold = Color(0xFFE9BD55)
 val ChickenRed = Color(0xFFC72D36)
 val BroilerGreen = Color(0xFF168540)

@@ -2,16 +2,16 @@
     <style name="Theme.AhsanBase" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans-serif</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:statusBarColor">#003D2B</item>
+        <item name="android:statusBarColor">#0A3B22</item>
         <item name="android:navigationBarColor">#F5F8F6</item>
         <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:windowBackground">#003D2B</item>
+        <item name="android:windowBackground">#0A3B22</item>
     </style>
     <style name="Theme.Ahsan" parent="Theme.AhsanBase" />
 
     <!-- Android 12+ System Splash Screen Theme via androidx.core:core-splashscreen -->
     <style name="Theme.App.Starting" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">#003D2B</item>
+        <item name="windowSplashScreenBackground">#0A3B22</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_brand</item>
         <item name="postSplashScreenTheme">@style/Theme.Ahsan</item>
     </style>

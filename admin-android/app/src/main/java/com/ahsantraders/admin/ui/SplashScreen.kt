@@ -18,47 +18,60 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ahsantraders.admin.R
+import kotlinx.coroutines.delay
 
+/** Curvy script used for the footer slogan — the one decorative accent on this screen. */
 val ScriptFontFamily: FontFamily = FontFamily(
-    Font(R.font.script_font, FontWeight.Normal, FontStyle.Italic)
+    Font(R.font.script_font, FontWeight.Normal)
 )
 
 /**
  * Layer 2: Jetpack Compose Splash Screen.
- * Displays centered AT brand logo, subtitle, 3 colored sector circles, and tagline.
+ *
+ * A single, centered brand composition on the deep forest-green canvas:
+ *   logo lockup → "3 Businesses | 1 Vision" → three sector circles → script footer.
+ *
+ * Design decisions (per the UI/UX analysis):
+ *   • One main composition — content is centered and vertically dense instead of
+ *     stretched to all four edges, so the footer never collides with the
+ *     navigation bar on short / low-aspect-ratio screens.
+ *   • Two typefaces only — the default sans-serif family for the header/body and
+ *     the script font for the footer slogan.
+ *   • Simple sequential entrance — the hero fades in, then the three sector
+ *     circles stagger in (Chicken → LPG → Broiler) for a lightweight 2-second
+ *     launch feel; no looping or springy motion.
  */
 @Composable
 fun SplashScreen(
     viewModel: SplashViewModel,
     onNavigate: (String) -> Unit
 ) {
-    val configuration = LocalConfiguration.current
-    val screenWidth = configuration.screenWidthDp.dp
-    val screenHeight = configuration.screenHeightDp.dp
-    val isShortScreen = screenHeight < 680.dp
+    val isShortScreen = LocalConfiguration.current.screenHeightDp.dp < 680.dp
 
-    // Responsive dimensions scaled relative to screen width (NOT hardcoded dp)
-    val logoWidth = screenWidth * 0.60f
-    val circleSize = (screenWidth * 0.17f).coerceIn(52.dp, 76.dp)
-
-    // Fade-in animation state (200ms duration)
-    var contentVisible by remember { mutableStateOf(false) }
+    // Sequential entrance stages: hero → sector circles → footer.
+    var heroVisible by remember { mutableStateOf(false) }
+    var circlesVisible by remember { mutableStateOf(false) }
+    var footerVisible by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.onFirstFrameRendered()
-        contentVisible = true
+        heroVisible = true
+        delay(160)
+        circlesVisible = true
+        delay(80)
+        footerVisible = true
     }
 
-    // Collect navigation events triggered after session evaluation and 1200ms delay
+    // Collect navigation events triggered after session evaluation and 1200ms delay.
     LaunchedEffect(Unit) {
         viewModel.navigationEvent.collect { target ->
             when (target) {
@@ -68,79 +81,75 @@ fun SplashScreen(
         }
     }
 
-    // Full-screen background in brand dark green
+    // Single centered canvas in deep forest green.
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BrandGreen),
+            .background(SplashForestGreen),
         contentAlignment = Alignment.Center
     ) {
-        AnimatedVisibility(
-            visible = contentVisible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 200)),
-            exit = fadeOut(animationSpec = tween(durationMillis = 200))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 24.dp, vertical = if (isShortScreen) 16.dp else 28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Top balancing spacer
-                Spacer(modifier = Modifier.weight(if (isShortScreen) 0.5f else 1f))
-
-                // Centered Hero Section: Logo Lockup + Subtitle
+            // ---- Hero: logo lockup + subtitle ----
+            StageIn(visible = heroVisible, delayMillis = 0) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(if (isShortScreen) 10.dp else 16.dp)
+                    verticalArrangement = Arrangement.spacedBy(if (isShortScreen) 8.dp else 12.dp)
                 ) {
-                    // Logo Lockup: AT mark + AHSAN TRADERS transparent PNG (~60% screen width)
                     Image(
                         painter = painterResource(R.drawable.logo_lockup),
                         contentDescription = "Ahsan Traders Logo",
                         modifier = Modifier
-                            .width(logoWidth)
-                            .heightIn(max = if (isShortScreen) 90.dp else 125.dp),
+                            .width((LocalConfiguration.current.screenWidthDp * 0.60f).dp)
+                            .heightIn(max = if (isShortScreen) 86.dp else 116.dp),
                         contentScale = ContentScale.Fit
                     )
-
-                    // Subtitle: "3 Businesses  |  1 Vision"
                     Text(
                         text = "3 Businesses  |  1 Vision",
                         color = BrandWhite,
-                        fontSize = if (isShortScreen) 12.sp else 13.5.sp,
+                        fontSize = if (isShortScreen) 12.sp else 14.sp,
                         fontWeight = FontWeight.Medium,
                         letterSpacing = 2.5.sp,
                         textAlign = TextAlign.Center
                     )
                 }
+            }
 
-                Spacer(modifier = Modifier.weight(if (isShortScreen) 0.8f else 1.2f))
+            Spacer(modifier = Modifier.height(if (isShortScreen) 26.dp else 38.dp))
 
-                // Sector Showcase: Three colored circular badges
-                // Order: Red = Chicken Shop, Blue = LPG (Gas), Green = Broiler (Poultry)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.Top
-                ) {
+            // ---- Sector showcase: three color-coded circles staging in ----
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.Top
+            ) {
+                val circleSize =
+                    ((LocalConfiguration.current.screenWidthDp * 0.15f).dp).coerceIn(50.dp, 66.dp)
+                StageIn(visible = circlesVisible, delayMillis = 0) {
                     SectorCircleItem(
                         circleSize = circleSize,
                         circleColor = ChickenRed,
                         iconRes = R.drawable.ic_sector_chicken,
                         label = "Chicken\nShop"
                     )
+                }
+                StageIn(visible = circlesVisible, delayMillis = 110) {
                     SectorCircleItem(
                         circleSize = circleSize,
                         circleColor = LpgBlue,
                         iconRes = R.drawable.ic_sector_lpg,
                         label = "LPG\nBusiness"
                     )
+                }
+                StageIn(visible = circlesVisible, delayMillis = 220) {
                     SectorCircleItem(
                         circleSize = circleSize,
                         circleColor = BroilerGreen,
@@ -148,28 +157,54 @@ fun SplashScreen(
                         label = "Poultry\nFarm"
                     )
                 }
+            }
 
-                Spacer(modifier = Modifier.weight(if (isShortScreen) 1f else 1.5f))
+            Spacer(modifier = Modifier.height(if (isShortScreen) 26.dp else 38.dp))
 
-                // Tagline at the bottom in custom script / italic font
+            // ---- Footer slogan in the script font ----
+            StageIn(visible = footerVisible, delayMillis = 0) {
                 Text(
                     text = "Grow Together With Trust",
-                    color = BrandWhite,
+                    color = BrandGold,
                     fontFamily = ScriptFontFamily,
-                    fontStyle = FontStyle.Italic,
-                    fontSize = if (isShortScreen) 17.sp else 20.sp,
-                    fontWeight = FontWeight.Normal,
+                    style = TextStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
+                    fontSize = if (isShortScreen) 16.sp else 19.sp,
                     letterSpacing = 0.5.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(bottom = 12.dp)
+                    textAlign = TextAlign.Center
                 )
             }
         }
     }
 }
 
+/** Fades a child in with an optional staggered delay. */
+@Composable
+private fun StageIn(
+    visible: Boolean,
+    delayMillis: Int,
+    content: @Composable () -> Unit
+) {
+    var show by remember { mutableStateOf(false) }
+    LaunchedEffect(visible, delayMillis) {
+        if (visible) {
+            delay(delayMillis.toLong())
+            show = true
+        } else {
+            show = false
+        }
+    }
+    AnimatedVisibility(
+        visible = show,
+        enter = fadeIn(animationSpec = tween(durationMillis = 240)),
+        exit = fadeOut(animationSpec = tween(durationMillis = 160))
+    ) {
+        content()
+    }
+}
+
 /**
- * Individual circular sector item with scaled diameter, white icon, and two-line label.
+ * Individual circular sector item with fixed diameter, white icon and two-line label.
+ * Labels stay one weight/family (sans-serif) for consistency.
  */
 @Composable
 private fun SectorCircleItem(
@@ -180,7 +215,8 @@ private fun SectorCircleItem(
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.width(circleSize)
     ) {
         Box(
             modifier = Modifier
@@ -193,17 +229,17 @@ private fun SectorCircleItem(
                 painter = painterResource(iconRes),
                 contentDescription = null,
                 tint = BrandWhite,
-                modifier = Modifier.size(circleSize * 0.52f)
+                modifier = Modifier.size(circleSize * 0.5f)
             )
         }
-
         Text(
             text = label,
             color = BrandWhite,
-            fontSize = 11.5.sp,
+            fontSize = 10.5.sp,
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.Center,
-            lineHeight = 15.sp
+            lineHeight = 14.sp,
+            maxLines = 2
         )
     }
 }

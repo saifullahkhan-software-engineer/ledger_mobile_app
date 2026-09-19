@@ -396,6 +396,9 @@ async def set_app_icon(key: str, payload: AppIconUpdate, db: DB, u=Depends(root)
         icon.image_url = payload.image_url
         if payload.fallback_icon:
             icon.fallback_icon = payload.fallback_icon
+        elif not payload.image_url:
+            # Reverting to the default icon also drops the stale fallback.
+            icon.fallback_icon = None
     await db.flush()
     return icon
 

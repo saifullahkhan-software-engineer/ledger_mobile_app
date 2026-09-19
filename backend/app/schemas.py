@@ -141,7 +141,8 @@ class AppIconOut(BaseModel):
 class AppIconUpdate(Input):
     label: Name | None = None
     screen: str = Field(default="dashboard", max_length=50)
-    image_url: str = Field(min_length=1, max_length=500)
+    # An empty string reverts the screen back to its default system icon.
+    image_url: str = Field(max_length=500)
     fallback_icon: str | None = Field(default=None, max_length=50)
 
 

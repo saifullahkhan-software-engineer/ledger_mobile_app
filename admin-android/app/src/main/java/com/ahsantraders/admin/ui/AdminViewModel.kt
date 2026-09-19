@@ -25,7 +25,8 @@ data class AdminState(
     val more: Boolean = false, val start: String = businessDate(), val end: String = businessDate(),
     val reportBusiness: String? = null, val draft: Draft? = null, val language: String = "en",
     val users: List<UserOut> = emptyList(), val userDetail: UserOut? = null, val userDraft: UserDraft? = null,
-    val userSearch: String = "", val userFilter: String = "", val icons: List<AppIconItem> = emptyList()
+    val userSearch: String = "", val userFilter: String = "", val icons: List<AppIconItem> = emptyList(),
+    val uploading: Boolean = false
 )
 class AdminViewModel(private val repo: AdminRepository) : ViewModel() {
     private val mutable = MutableStateFlow(AdminState(language = repo.store.language))
@@ -227,11 +228,45 @@ class AdminViewModel(private val repo: AdminRepository) : ViewModel() {
         updateState { it.copy(userDetail = updated, notice = if (enabled) "Business access granted." else "Business access removed.") }
         loadPage()
     }
-    fun setScreenIcon(key: String, label: String, imageUrl: String) = write {
+    fun setScreenIconFromUrl(key: String, label: String, imageUrl: String) = write {
         repo.api.setIcon(key, AppIconUpdateReq(label = label, screen = "dashboard", image_url = imageUrl))
         val icons = repo.api.icons()
         updateState { it.copy(icons = icons, notice = "Screen icon updated.") }
         loadPage()
+    }
+    fun setScreenIconFromBytes(key: String, label: String, bytes: ByteArray, name: String) = write {
+        val uploaded = runUpload(bytes, name)
+        repo.api.setIcon(key, AppIconUpdateReq(label = label, screen = "dashboard", image_url = uploaded.image_url))
+        val icons = repo.api.icons()
+        updateState { it.copy(icons = icons, notice = "Screen icon uploaded and updated.") }
+        loadPage()
+    }
+    fun setBusinessIconFromUrl(business: Business, iconUrl: String) = write {
+        repo.api.setBusinessIcon(business.id, BusinessIconUpdateReq(icon_url = iconUrl))
+        val businesses = repo.api.businesses().sortedBy { businessOrdinal(it.type) }
+        updateState { it.copy(businesses = businesses, business = businesses.find { b -> b.id == business.id }, notice = "Business icon updated.") }
+        loadPage()
+    }
+    fun setBusinessIconFromBytes(business: Business, bytes: ByteArray, name: String) = write {
+        val uploaded = runUpload(bytes, name)
+        repo.api.setBusinessIcon(business.id, BusinessIconUpdateReq(icon_url = uploaded.image_url))
+        val businesses = repo.api.businesses().sortedBy { businessOrdinal(it.type) }
+        updateState { it.copy(businesses = businesses, business = businesses.find { b -> b.id == business.id }, notice = "Business icon uploaded and updated.") }
+        loadPage()
+    }
+    fun removeScreenIcon(key: String, label: String) = write {
+        repo.api.setIcon(key, AppIconUpdateReq(label = label, screen = "dashboard", image_url = ""))
+        val icons = repo.api.icons()
+        updateState { it.copy(icons = icons, notice = "Screen icon reverted to the default.") }
+        loadPage()
+    }
+    private suspend fun runUpload(bytes: ByteArray, name: String): IconUploadResult {
+        updateState { it.copy(uploading = true) }
+        return try {
+            repo.api.uploadIconBase64(Base64IconUploadReq(filename = name, data = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)))
+        } finally {
+            updateState { it.copy(uploading = false) }
+        }
     }
     fun range(start: String, end: String, businessId: String?) {
         try {

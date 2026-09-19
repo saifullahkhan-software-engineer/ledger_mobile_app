@@ -33,18 +33,28 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ahsantraders.admin.data.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.TimeUnit
 
 // ---------------------------------------------------------------------------
 // Screen & business icons (SUPERADMIN only). Two ways to set an image:
-//   • Upload — pick from this device's gallery; the file is sent to the
-//     server, which stores it on disk and returns its /uploads URL.
-//   • Paste URL — point at any hosted image.
-// The database stores only the returned/given URL, never the image bytes.
+//   • Upload — pick from this device's gallery; the server validates the real
+//     image bytes and stores them in the PostgreSQL image_assets table.
+//   • Paste URL — point at an externally hosted image (kept as a plain URL).
+// Either way the saved value is a URL: uploaded images come back as a short
+// relative /api/v1/images/{id} serving URL, which this app resolves against
+// the configured server. Image bytes never travel inside icon lists or the
+// mobile icons configuration — only URLs do.
 // ---------------------------------------------------------------------------
 
 private const val MAX_ICON_BYTES = 2 * 1024 * 1024
+private const val MAX_PREVIEW_BYTES = 8 * 1024 * 1024
 
-private enum class IconTab { URL, UPLOAD }
+private enum class IconTab { UPLOAD, URL }
 private data class PickedImage(val name: String, val bytes: ByteArray)
 
 private data class IconSlot(
@@ -66,6 +76,14 @@ private val iconSlots = listOf(
     IconSlot("quick_stock", "Stock Action Icon", "\"Stock\" quick action.", Icons.Default.Inventory2, Forest),
 )
 
+/** Shared client for icon previews; image-serving routes are public, like the legacy /uploads files. */
+private val imagePreviewClient: OkHttpClient by lazy {
+    OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .build()
+}
+
 /** Resolves the display name of a content URI, falling back to its last path segment. */
 private fun displayName(context: Context, uri: Uri): String =
     runCatching {
@@ -75,25 +93,54 @@ private fun displayName(context: Context, uri: Uri): String =
             ?: uri.lastPathSegment
     }.getOrNull() ?: uri.lastPathSegment.orEmpty()
 
-/** Draws a picked bitmap, else a network image when available, else a fallback slot. */
+/** Reads a stream with a hard byte cap; returns null when the cap is exceeded. */
+private fun readBounded(stream: java.io.InputStream, limit: Int): ByteArray? {
+    val out = ByteArrayOutputStream()
+    val buffer = ByteArray(8192)
+    var total = 0
+    while (true) {
+        val read = stream.read(buffer)
+        if (read == -1) break
+        total += read
+        if (total > limit) return null
+        out.write(buffer, 0, read)
+    }
+    return out.toByteArray()
+}
+
+/** Fetches a remote image with bounded reads, or null on any failure. */
+private suspend fun fetchRemoteBitmap(url: String): Bitmap? = withContext(Dispatchers.IO) {
+    runCatching {
+        val bytes = imagePreviewClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
+            if (!response.isSuccessful) {
+                null
+            } else {
+                val body = response.body
+                if (body.contentLength() > MAX_PREVIEW_BYTES) null
+                else body.byteStream().use { readBounded(it, MAX_PREVIEW_BYTES) }
+            }
+        }
+        bytes?.let { b -> BitmapFactory.decodeByteArray(b, 0, b.size) }
+    }.getOrNull()
+}
+
+/** Draws a picked bitmap, else a network image (http/https), else the fallback slot. */
 @Composable
 private fun PreviewImage(validUrl: String?, thumb: Bitmap?, fallback: @Composable () -> Unit) {
     if (thumb != null) {
         Image(bitmap = thumb.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         return
     }
-    if (!validUrl.isNullOrBlank()) {
-        val context = LocalContext.current
-        var loaded by remember(validUrl) { mutableStateOf(false) }
+    if (!validUrl.isNullOrBlank() && (validUrl.startsWith("http://") || validUrl.startsWith("https://"))) {
         var bmp by remember(validUrl) { mutableStateOf<Bitmap?>(null) }
+        var failed by remember(validUrl) { mutableStateOf(false) }
         LaunchedEffect(validUrl) {
-            val data = runCatching { context.contentResolver.openInputStream(Uri.parse(validUrl))?.use { it.readBytes() } }.getOrNull()
-            bmp = data?.let { d -> runCatching { BitmapFactory.decodeByteArray(d, 0, d.size) }.getOrNull() }
-            loaded = true
+            val fetched = fetchRemoteBitmap(validUrl)
+            if (fetched != null) bmp = fetched else failed = true
         }
         val currentBmp = bmp
         if (currentBmp != null) Image(bitmap = currentBmp.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-        else if (loaded) fallback()
+        else if (failed) fallback()
         return
     }
     fallback()
@@ -103,7 +150,7 @@ private fun PreviewImage(validUrl: String?, thumb: Bitmap?, fallback: @Composabl
 fun IconsScreen(s: AdminState, vm: AdminViewModel) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            "Super admin: set the image shown on the mobile app for each screen card, app logo and quick action. Upload from this device or paste a URL — the server stores the image file and the app saves its URL.",
+            "Super admin: set the image shown on the mobile app for each screen card, app logo and quick action. Uploaded images are stored in the PostgreSQL database; the server returns a short /api/v1/images/… URL and the apps load the image from that URL — so delivery still works exactly like any hosted image.",
             color = Muted, fontSize = 12.sp
         )
         iconSlots.forEach { slot ->
@@ -155,6 +202,7 @@ private fun IconSlotCard(slot: IconSlot, saved: AppIconItem?, s: AdminState, vm:
             fallback = { Icon(slot.icon, null, tint = Color.White, modifier = Modifier.size(30.dp)) },
             onSaveUrl = { url -> editing = false; vm.setScreenIconFromUrl(slot.key, slot.label, url) },
             onSaveImage = { bytes, name -> editing = false; vm.setScreenIconFromBytes(slot.key, slot.label, bytes, name) },
+            onRemove = if (rawUrl.isNotBlank()) ({ vm.removeScreenIcon(slot.key, slot.label) }) else null,
             onDismiss = { editing = false },
         )
     }
@@ -182,7 +230,12 @@ private fun BusinessIconCard(business: Business, s: AdminState, vm: AdminViewMod
                 }
                 Text(tr(sectorName(business.type)), color = Muted, fontSize = 11.sp)
             }
-            Text(if (business.icon_url.isNullOrBlank()) tr("Add image") else tr("Change"), color = Forest, fontWeight = FontWeight.Medium, fontSize = 12.sp)
+            Column(horizontalAlignment = Alignment.End) {
+                Text(if (business.icon_url.isNullOrBlank()) tr("Add image") else tr("Change"), color = Forest, fontWeight = FontWeight.Medium, fontSize = 12.sp)
+                if (!business.icon_url.isNullOrBlank()) {
+                    TextButton(onClick = { vm.removeBusinessIcon(business) }, enabled = enabled, modifier = Modifier.height(32.dp)) { Text(tr("Remove"), fontSize = 12.sp) }
+                }
+            }
         }
     }
     if (editing) {
@@ -195,6 +248,7 @@ private fun BusinessIconCard(business: Business, s: AdminState, vm: AdminViewMod
             fallback = { SectorIcon(business.type, tint = Color.White, modifier = Modifier.size(30.dp)) },
             onSaveUrl = { url -> editing = false; vm.setBusinessIconFromUrl(business, url) },
             onSaveImage = { bytes, name -> editing = false; vm.setBusinessIconFromBytes(business, bytes, name) },
+            onRemove = if (business.icon_url.isNullOrBlank()) null else ({ vm.removeBusinessIcon(business) }),
             onDismiss = { editing = false },
         )
     }
@@ -217,9 +271,13 @@ private fun IconEditorDialog(
     fallback: @Composable () -> Unit,
     onSaveUrl: (String) -> Unit,
     onSaveImage: (ByteArray, String) -> Unit,
+    onRemove: (() -> Unit)?,
     onDismiss: () -> Unit,
 ) {
-    var tab by remember { mutableStateOf(IconTab.URL) }
+    // Upload is the primary flow: it stores image bytes in the database and
+    // shows a preview. The external-URL option stays on its own tab for
+    // legacy/self-hosted images and is never mixed into the upload flow.
+    var tab by remember { mutableStateOf(if (originalUrl.startsWith("http")) IconTab.URL else IconTab.UPLOAD) }
     var draft by remember { mutableStateOf(originalUrl) }
     var picked by remember { mutableStateOf<PickedImage?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -258,10 +316,17 @@ private fun IconEditorDialog(
                 }
                 TabRow(selectedTabIndex = tab.ordinal, containerColor = Color.Transparent) {
                     IconTab.entries.forEach { t ->
-                        Tab(selected = tab == t, onClick = { tab = t; error = null }, text = { Text(if (t == IconTab.URL) "Paste URL" else "Upload image") })
+                        Tab(selected = tab == t, onClick = { tab = t; error = null }, text = { Text(if (t == IconTab.URL) "External URL" else "Upload image") })
                     }
                 }
                 when (tab) {
+                    IconTab.UPLOAD -> {
+                        OutlinedButton(
+                            onClick = { launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Icon(Icons.Default.PhotoLibrary, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text(tr("Choose from gallery")) }
+                        Text("PNG, JPEG, WebP or ICO up to 2 MB. The image is stored in the database and shown from its own short /api/v1/images/… link — no URL typing needed.", color = Muted, fontSize = 11.sp)
+                    }
                     IconTab.URL -> {
                         OutlinedTextField(
                             value = draft,
@@ -272,14 +337,8 @@ private fun IconEditorDialog(
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                             modifier = Modifier.fillMaxWidth()
                         )
+                        Text("Only for images hosted elsewhere; the URL itself is stored without copying the image.", color = Muted, fontSize = 11.sp)
                         if (draft.isNotBlank()) TextButton(onClick = { draft = ""; error = null }) { Text(tr("Clear"), fontSize = 12.sp) }
-                    }
-                    IconTab.UPLOAD -> {
-                        OutlinedButton(
-                            onClick = { launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Icon(Icons.Default.PhotoLibrary, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text(tr("Choose from gallery")) }
-                        Text("JPG, PNG, WebP, SVG or ICO up to 2 MB. The file is stored on the server and its URL is saved.", color = Muted, fontSize = 11.sp)
                     }
                 }
                 error?.let { Text(it, color = Chicken, fontSize = 12.sp) }
@@ -289,6 +348,10 @@ private fun IconEditorDialog(
             Button(
                 onClick = {
                     when (tab) {
+                        IconTab.UPLOAD -> {
+                            val p = picked
+                            if (p == null) error = "Choose an image first" else onSaveImage(p.bytes, p.name)
+                        }
                         IconTab.URL -> {
                             val v = draft.trim()
                             when {
@@ -297,15 +360,26 @@ private fun IconEditorDialog(
                                 else -> onSaveUrl(v)
                             }
                         }
-                        IconTab.UPLOAD -> {
-                            val p = picked
-                            if (p == null) error = "Choose an image first" else onSaveImage(p.bytes, p.name)
-                        }
                     }
                 },
                 enabled = !uploading
-            ) { Text(tr("Save")) }
+            ) {
+                if (uploading) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(tr("Saving…"))
+                } else {
+                    Text(tr("Save"))
+                }
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Cancel")) } },
+        dismissButton = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (onRemove != null) {
+                    TextButton(onClick = { onDismiss(); onRemove() }, enabled = !uploading) { Text(tr("Remove")) }
+                }
+                TextButton(onClick = onDismiss) { Text(tr("Cancel")) }
+            }
+        },
     )
 }

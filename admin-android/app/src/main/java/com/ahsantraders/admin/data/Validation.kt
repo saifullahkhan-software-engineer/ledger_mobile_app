@@ -32,7 +32,7 @@ fun normalizePhone(input: String): String {
     }
 }
 
-/** Resolves `/uploads/…` server paths into absolute URLs for image display. */
+/** Resolves relative server paths ('/api/v1/images/…' database-backed image assets, or legacy '/uploads/…' files) into absolute URLs for image display. */
 fun absoluteUrl(base: String, path: String?): String {
     if (path.isNullOrBlank()) return ""
     if (path.startsWith("http://") || path.startsWith("https://")) return path

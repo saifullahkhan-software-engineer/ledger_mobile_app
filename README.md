@@ -40,6 +40,15 @@ owner-only screens for non-owner accounts.
    uvicorn app.main:app --host 0.0.0.0 --port 8000
    ```
 
+   Screen/brand/business icon images are stored as bytes in PostgreSQL
+   (`image_assets` table) and served from `/api/v1/images/{id}`. Existing
+   installations migrate with two explicit, repeatable commands:
+
+   ```bash
+   python -m app.manage upgrade-db       # additive schema upgrade (no data changes)
+   python -m app.manage migrate-images   # import legacy uploads/ files into the DB
+   ```
+
 2. **Admin app** — open [`admin-android/`](admin-android/README.md) in Android Studio
    and run it. Sign in with the owner credentials from `seed`. Use the owner-only
    **Users** and **Screen icons** entries in the drawer to create managers and
@@ -52,7 +61,7 @@ client's API contract against the live OpenAPI schema:
 
 ```bash
 cd backend
-python -m pytest -q     # 21 passed, 1 PostgreSQL-only skipped
+python -m pytest -q     # 41 passed, 1 PostgreSQL-only skipped (SQLite; PostgreSQL in CI)
 ```
 
 ## Before real-money use

@@ -1,14 +1,20 @@
-"""Explicit initialization and owner provisioning; never expose these over HTTP."""
+"""Explicit schema management and owner provisioning; never expose these over HTTP."""
 
 import argparse
 import asyncio
 import getpass
 import os
 
-from sqlalchemy import select, text
+from sqlalchemy import inspect, select, text
 
-from .db import Base, AsyncSessionLocal, engine, sync_engine
-from .models import Business, User, WriteLock
+from .db import (
+    Base,
+    AsyncSessionLocal,
+    engine,
+    sync_engine,
+    ensure_business_icon_column_on_connection,
+)
+from .models import AppIcon, Business, User, WriteLock
 from .schemas import Register
 from .security import passwords
 
@@ -42,6 +48,23 @@ async def init():
     print(
         "Schema initialized. Use migrations for future schema changes; init is not an upgrade tool."
     )
+
+
+async def upgrade():
+    """Apply the additive icon upgrade to an initialized database; safe to rerun."""
+    async with engine.begin() as conn:
+        initialized = await conn.run_sync(
+            lambda connection: inspect(connection).has_table("businesses")
+        )
+        if not initialized:
+            raise RuntimeError(
+                "Database is not initialized. Run python -m app.manage init-db first."
+            )
+        await conn.run_sync(ensure_business_icon_column_on_connection)
+        await conn.run_sync(
+            lambda connection: AppIcon.__table__.create(connection, checkfirst=True)
+        )
+    print("Icon schema upgraded; existing data preserved.")
 
 
 async def seed():
@@ -80,6 +103,7 @@ async def seed():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["init-db", "seed"])
+    parser.add_argument("command", choices=["init-db", "upgrade-db", "seed"])
     args = parser.parse_args()
-    asyncio.run(init() if args.command == "init-db" else seed())
+    commands = {"init-db": init, "upgrade-db": upgrade, "seed": seed}
+    asyncio.run(commands[args.command]())

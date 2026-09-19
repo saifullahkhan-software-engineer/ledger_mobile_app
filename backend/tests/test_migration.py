@@ -12,7 +12,7 @@ from app.db import Session, sync_engine
 from app.images import UPLOAD_DIR, local_upload_relative_path
 from app.manage import import_legacy_uploads
 from app.models import AppIcon, Business, ImageAsset, User
-from test_upgrade import legacy_without
+from test_upgrade import simulate_legacy_schema
 
 P = "/api/v1"
 
@@ -206,8 +206,8 @@ def test_migrate_images_cli_upgrades_schema_and_imports(client):
         # Simulate a database created before image storage: rebuild the tables
         # in their old shapes and drop the image-asset table.
         with sync_engine.begin() as conn:
-            legacy_without(conn, "app_icons", APP_ICON_COLUMNS)
-            legacy_without(conn, "businesses", BUSINESS_COLUMNS)
+            simulate_legacy_schema(conn, "app_icons", APP_ICON_COLUMNS, ["asset_id"])
+            simulate_legacy_schema(conn, "businesses", BUSINESS_COLUMNS, ["icon_asset_id"])
             conn.execute(text("DROP TABLE image_assets"))
 
         result = subprocess.run(

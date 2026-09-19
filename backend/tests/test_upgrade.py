@@ -29,6 +29,15 @@ def legacy_without(conn, table, columns):
     conn.execute(text(f"ALTER TABLE {table}__legacy RENAME TO {table}"))
 
 
+def simulate_legacy_schema(conn, table, keep_columns, drop_columns):
+    """Give a table its previous-release shape on either supported engine."""
+    if conn.dialect.name == "postgresql":
+        for column in drop_columns:
+            conn.execute(text(f"ALTER TABLE {table} DROP COLUMN {column}"))
+    else:  # SQLite rebuild paths: businesses has dependents and FK columns
+        legacy_without(conn, table, keep_columns)
+
+
 BUSINESS_COLUMNS = [
     "id", "name", "type", "total_shares", "share_price", "stock", "stock_cost",
 ]
@@ -42,7 +51,8 @@ def test_upgrade_legacy_icons_preserves_data(client, admin_headers, missing_busi
     with sync_engine.begin() as conn:
         AppIcon.__table__.drop(conn)
         keep = BUSINESS_COLUMNS + ([] if missing_business_icon else ["icon_url"])
-        legacy_without(conn, "businesses", keep)
+        drop = ["icon_asset_id"] + (["icon_url"] if missing_business_icon else [])
+        simulate_legacy_schema(conn, "businesses", keep, drop)
         conn.execute(text("DROP TABLE image_assets"))
         if not missing_business_icon:
             conn.execute(text("UPDATE businesses SET icon_url = '/uploads/existing.png'"))
@@ -98,8 +108,8 @@ def test_upgrade_adds_asset_columns_to_intermediate_schema(client, admin_headers
     with sync_engine.begin() as conn:
         # Recreate the previous release's table shapes (no asset columns) and
         # drop the image-asset table (children first for PostgreSQL).
-        legacy_without(conn, "app_icons", APP_ICON_COLUMNS)
-        legacy_without(conn, "businesses", BUSINESS_COLUMNS + ["icon_url"])
+        simulate_legacy_schema(conn, "app_icons", APP_ICON_COLUMNS, ["asset_id"])
+        simulate_legacy_schema(conn, "businesses", BUSINESS_COLUMNS + ["icon_url"], ["icon_asset_id"])
         conn.execute(text("DROP TABLE image_assets"))
 
     run_upgrade()

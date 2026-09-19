@@ -23,7 +23,11 @@ jobs:
       # exposed via ANDROID_HOME/ANDROID_SDK_ROOT; a third-party setup action
       # is not needed (and android-actions/setup-android@v3 is unmaintained).
       - uses: gradle/actions/setup-gradle@v4
-      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Install Android platform and build-tools
+        run: |
+          SDKMANAGER="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
       - run: ./gradlew testDebugUnitTest lintDebug assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
         with:

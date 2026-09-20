@@ -20,6 +20,37 @@ import androidx.compose.ui.unit.sp
 import com.ahsantraders.admin.data.*
 import java.time.LocalDate
 
+
+fun findActionIconUrl(server: String, icons: List<AppIconItem>, vararg candidateKeys: String): String? {
+    for (key in candidateKeys) {
+        val found = icons.find { it.key.equals(key, ignoreCase = true) }
+        val raw = found?.image_url?.trim().orEmpty()
+        if (raw.isNotBlank()) {
+            return absoluteUrl(server, raw)
+        }
+    }
+    return null
+}
+
+fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconItem>): String? {
+    val bUrl = business.icon_url?.trim().orEmpty()
+    if (bUrl.isNotBlank()) {
+        return absoluteUrl(server, bUrl)
+    }
+    val slotKey = when (business.type.uppercase()) {
+        "CHICKEN" -> "business_chicken"
+        "LPG" -> "business_lpg"
+        "BROILER" -> "business_broiler"
+        else -> "business_${business.type.lowercase()}"
+    }
+    val found = icons.find { it.key.equals(slotKey, ignoreCase = true) }
+    val raw = found?.image_url?.trim().orEmpty()
+    if (raw.isNotBlank()) {
+        return absoluteUrl(server, raw)
+    }
+    return null
+}
+
 @Composable fun HomeScreen(s: AdminState, vm: AdminViewModel, choose: (FormKind) -> Unit) {
     Text(if (s.language == "ur") "خوش آمدید، ${s.user?.name.orEmpty()}" else "Welcome, ${s.user?.name.orEmpty()}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
     Text(if (s.language == "ur") "اپنے کاروبار ایک جگہ سنبھالیں" else "Your businesses. One clear picture.", color = Muted)
@@ -32,12 +63,44 @@ import java.time.LocalDate
     SectionTitle("Your businesses")
     if (s.businesses.isEmpty() && !s.loading) Empty("No businesses assigned. Ask your owner for access.")
     s.businesses.chunked(3).forEach { group ->
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min)
+        ) {
             group.forEach { business ->
-                Card(onClick = { vm.go(Page.BUSINESS, business) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = sectorColor(business.type))) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                        SectorIcon(business.type, tint = Color.White, modifier = Modifier.size(35.dp))
-                        Text(tr(sectorName(business.type)), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Card(
+                    onClick = { vm.go(Page.BUSINESS, business) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = sectorColor(business.type))
+                ) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight()
+                            .padding(horizontal = 8.dp, vertical = 18.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(9.dp)
+                    ) {
+                        val bizIconUrl = findBusinessIconUrl(vm.server, business, s.icons)
+                        DynamicSectorIcon(
+                            type = business.type,
+                            imageUrl = bizIconUrl,
+                            tint = Color.White,
+                            modifier = Modifier.size(35.dp)
+                        )
+                        Text(
+                            tr(sectorName(business.type)),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            maxLines = 2
+                        )
                         val row = s.dashboard?.businesses?.find { it.business_id == business.id }
                         Text(row?.let { rupees(it.revenue) } ?: "—", fontSize = 12.sp, color = Color.White)
                         Text(tr("Sales"), fontSize = 10.sp, color = Color.White.copy(alpha = .8f))
@@ -47,11 +110,31 @@ import java.time.LocalDate
         }
     }
     SectionTitle("Quick actions")
+    val saleIconUrl = findActionIconUrl(vm.server, s.icons, "quick_sale", "ADD_SALE_ICON", "add_sale", "sale_icon")
+    val expenseIconUrl = findActionIconUrl(vm.server, s.icons, "quick_expense", "ADD_EXPENSE_ICON", "add_expense", "expense_icon")
+    val reportsIconUrl = findActionIconUrl(vm.server, s.icons, "quick_reports", "REPORTS_ICON", "reports", "reports_icon")
+
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        ActionTile("Add sale", Icons.Default.AddCircle, modifier = Modifier.weight(1f)) { choose(FormKind.SALE) }
-        ActionTile("Add expense", Icons.Default.AccountBalanceWallet, Color(0xFFE58B19), Modifier.weight(1f)) { choose(FormKind.EXPENSE) }
+        ActionTile(
+            label = "Add sale",
+            icon = Icons.Default.AddCircle,
+            customImageUrl = saleIconUrl,
+            modifier = Modifier.weight(1f)
+        ) { choose(FormKind.SALE) }
+        ActionTile(
+            label = "Add expense",
+            icon = Icons.Default.AccountBalanceWallet,
+            color = Color(0xFFE58B19),
+            customImageUrl = expenseIconUrl,
+            modifier = Modifier.weight(1f)
+        ) { choose(FormKind.EXPENSE) }
     }
-    LinkRow("Reports", Icons.Default.BarChart, "Daily, weekly and monthly performance") { vm.go(Page.REPORTS) }
+    LinkRow(
+        title = "Reports",
+        icon = Icons.Default.BarChart,
+        subtitle = "Daily, weekly and monthly performance",
+        customImageUrl = reportsIconUrl
+    ) { vm.go(Page.REPORTS) }
     Surface(color = Forest, shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Grow Together, With Trust", color = Gold, fontWeight = FontWeight.Medium)
@@ -62,9 +145,16 @@ import java.time.LocalDate
 
 @Composable fun BusinessScreen(s: AdminState, vm: AdminViewModel, confirmClose: (Day) -> Unit) {
     val b = s.business ?: return
+    val bizBannerIconUrl = findBusinessIconUrl(vm.server, b, s.icons)
     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Brush.horizontalGradient(listOf(sectorColor(b.type), Forest))).padding(24.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            SectorIcon(b.type, tint = Color.White, modifier = Modifier.size(54.dp))
+            DynamicSectorIcon(
+                type = b.type,
+                imageUrl = bizBannerIconUrl,
+                tint = Color.White,
+                modifier = Modifier.size(54.dp),
+                shape = RoundedCornerShape(12.dp)
+            )
             Column {
                 Text(b.name, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text(tr(sectorName(b.type)), color = Color.White.copy(alpha = .8f), modifier = Modifier.padding(top = 6.dp))
@@ -91,6 +181,11 @@ import java.time.LocalDate
             }
         }
     }
+
+    val saleIconUrl = findActionIconUrl(vm.server, s.icons, "quick_sale", "ADD_SALE_ICON", "add_sale", "sale_icon")
+    val expenseIconUrl = findActionIconUrl(vm.server, s.icons, "quick_expense", "ADD_EXPENSE_ICON", "add_expense", "expense_icon")
+    val stockIconUrl = findActionIconUrl(vm.server, s.icons, "quick_stock", "STOCK_ICON", "stock_icon", "stock")
+
     if (b.type == "BROILER") {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ActionTile("Create batch", Icons.Default.AddCircle, modifier = Modifier.weight(1f)) { vm.openForm(FormKind.BATCH_CREATE) }
@@ -99,18 +194,34 @@ import java.time.LocalDate
         summary?.batches?.forEach { batch -> BatchCard(batch) { vm.openBatch(batch) } }
     } else if (summary?.day?.status != "CLOSED") {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ActionTile("Add sale", Icons.Default.AddCircle, modifier = Modifier.weight(1f)) { vm.openForm(FormKind.SALE) }
-            ActionTile("Add purchase", Icons.Default.ShoppingCart, Lpg, Modifier.weight(1f)) { vm.openForm(FormKind.PURCHASE) }
+            ActionTile(
+                label = "Add sale",
+                icon = Icons.Default.AddCircle,
+                customImageUrl = saleIconUrl,
+                modifier = Modifier.weight(1f)
+            ) { vm.openForm(FormKind.SALE) }
+            ActionTile(
+                label = "Add purchase",
+                icon = Icons.Default.ShoppingCart,
+                color = Lpg,
+                modifier = Modifier.weight(1f)
+            ) { vm.openForm(FormKind.PURCHASE) }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ActionTile("Add expense", Icons.Default.AccountBalanceWallet, Color(0xFFE58B19), Modifier.weight(1f)) { vm.openForm(FormKind.EXPENSE) }
+            ActionTile(
+                label = "Add expense",
+                icon = Icons.Default.AccountBalanceWallet,
+                color = Color(0xFFE58B19),
+                customImageUrl = expenseIconUrl,
+                modifier = Modifier.weight(1f)
+            ) { vm.openForm(FormKind.EXPENSE) }
             if (b.type == "CHICKEN") ActionTile("Pota-Kaliji sale", Icons.Default.Restaurant, Chicken, Modifier.weight(1f)) { vm.openForm(FormKind.BYPRODUCT) }
         }
     }
-    LinkRow("Stock", Icons.Default.Inventory2) { vm.go(Page.STOCK) }
+    LinkRow("Stock", Icons.Default.Inventory2, customImageUrl = stockIconUrl) { vm.go(Page.STOCK) }
     if (b.type != "BROILER") {
         LinkRow("Transaction history", Icons.Default.ReceiptLong) { vm.go(Page.LEDGER) }
-        LinkRow("Expenses", Icons.Default.AccountBalanceWallet) { vm.go(Page.EXPENSES) }
+        LinkRow("Expenses", Icons.Default.AccountBalanceWallet, customImageUrl = expenseIconUrl) { vm.go(Page.EXPENSES) }
         LinkRow("Suppliers", Icons.Default.LocalShipping) { vm.go(Page.SUPPLIERS) }
         summary?.day?.takeIf { it.status == "OPEN" }?.let { day ->
             OutlinedButton(onClick = { confirmClose(day) }, enabled = !s.saving, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Lock, null); Spacer(Modifier.width(8.dp)); Text(tr("Close day")) }

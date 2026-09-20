@@ -1,3 +1,14 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+import java.io.File
+import java.io.IOException
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.time.Duration
+import java.time.Instant
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -20,6 +31,13 @@ val explicitServerUrl: String = (System.getenv("APP_SERVER_URL") ?: "").trim()
     .ifBlank { ((project.findProperty("appServerUrl") as String?) ?: "").trim() }
     .removeSuffix("/")
 val appServerUrl: String = explicitServerUrl.ifBlank { "http://10.0.2.2:8000" }
+
+// Icon-baking settings, read once here so the task action itself never touches
+// `project` (keeps it safe under the configuration cache).
+val appIconServerProp: String = ((project.findProperty("appIconServer") as String?) ?: "").trim().removeSuffix("/")
+val appIconPhoneProp: String = ((project.findProperty("appIconPhone") as String?) ?: "").trim()
+val appIconPasswordProp: String = ((project.findProperty("appIconPassword") as String?) ?: "").trim()
+val bakedIconsDir: File = layout.projectDirectory.dir("src/main/assets/saved_icons").asFile
 
 android {
     namespace = "com.ahsantraders.admin"
@@ -58,49 +76,51 @@ android {
 // icon is missing.
 //
 // Configure in ../gradle.properties:
-//   appIconServer=http://10.0.2.2:8000   (required to enable the task)
+//   appIconServer=http://10.0.2.2:8000   (optional override; defaults to the
+//                                         backend URL resolved above)
 //   appIconPhone=03001234567             (optional: also bakes per-business icons)
 //   appIconPassword=...                  (optional, used together with appIconPhone)
 //
-// If appIconServer is empty the task is skipped; if the server is unreachable
+// If no server is configured the task is skipped; if the server is unreachable
 // the task only warns and the build continues with the previously baked
 // icons. Never a build breaker on its own.
+//
+// Note: this script imports the JDK/Groovy types it needs at the top because
+// fully qualified `java.*` names do not resolve inside a Gradle Kotlin DSL
+// script (the `java` accessor shadows the package name).
 // ---------------------------------------------------------------------------
-val fetchAppIcons by tasks.registering {
+val fetchAppIcons = tasks.register("fetchAppIcons") {
     group = "ahsan"
     description = "Fetch the icons saved in the backend database and bake them into assets/saved_icons."
     // appIconServer is an optional override; by default the explicitly
     // configured backend (APP_SERVER_URL / appServerUrl) is used. When nothing
     // is configured the task is skipped (onlyIf below).
-    val server = ((project.findProperty("appIconServer") as String?) ?: "").trim().removeSuffix("/")
-        .ifBlank { explicitServerUrl }
-    val phone = ((project.findProperty("appIconPhone") as String?) ?: "").trim()
-    val password = ((project.findProperty("appIconPassword") as String?) ?: "").trim()
-    val outDir = layout.projectDirectory.dir("src/main/assets/saved_icons")
+    val server = appIconServerProp.ifBlank { explicitServerUrl }
+    val phone = appIconPhoneProp
+    val password = appIconPasswordProp
     onlyIf { server.isNotBlank() } // skipped when no server is configured
 
     doLast {
         try {
-            val client = java.net.http.HttpClient.newBuilder()
-                .connectTimeout(java.time.Duration.ofSeconds(15))
+            val client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(15))
                 .build()
-            val slurper = groovy.json.JsonSlurper()
-            val dir = outDir.asFile
+            val slurper = JsonSlurper()
+            val dir = bakedIconsDir
             dir.mkdirs()
 
             fun httpGet(url: String, bearer: String? = null): Pair<ByteArray, String> {
-                val request = java.net.http.HttpRequest.newBuilder(java.net.URI.create(url))
-                    .timeout(java.time.Duration.ofSeconds(30))
+                val builder = HttpRequest.newBuilder(URI.create(url))
+                    .timeout(Duration.ofSeconds(30))
                     .header("User-Agent", "ahsan-admin-icon-bake/1.0")
-                    .apply { if (bearer != null) header("Authorization", "Bearer $bearer") }
-                    .GET()
-                    .build()
-                val response = client.send(request, java.net.http.HttpResponse.BodyHandlers.ofByteArray())
-                if (response.statusCode() !in 200..299) throw java.io.IOException("HTTP ${response.statusCode()} for $url")
+                if (bearer != null) builder.header("Authorization", "Bearer $bearer")
+                val response = client.send(builder.GET().build(), HttpResponse.BodyHandlers.ofByteArray())
+                if (response.statusCode() !in 200..299) throw IOException("HTTP ${response.statusCode()} for $url")
                 return response.body() to response.headers().firstValue("Content-Type").orElse("")
             }
             fun resolve(url: String): String =
-                if (url.startsWith("http://") || url.startsWith("https://")) url else "$server/${url.removePrefix("/")}"
+                if (url.startsWith("http://") || url.startsWith("https://")) url
+                else "$server/" + url.removePrefix("/")
             fun extFor(contentType: String, url: String): String {
                 val ct = contentType.substringBefore(';').trim().lowercase()
                 return when {
@@ -121,9 +141,9 @@ val fetchAppIcons by tasks.registering {
                 val safeKey = key.trim().lowercase().replace(Regex("[^a-z0-9]+"), "_").ifBlank { "icon" }
                 val (bytes, contentType) = httpGet(resolve(url))
                 if (bytes.isEmpty()) return
-                val file = dir.newFile("$safeKey.${extFor(contentType, url)}")
-                file.writeBytes(bytes)
-                written[safeKey] = file.name
+                val target = File(dir, "$safeKey." + extFor(contentType, url))
+                target.writeBytes(bytes)
+                written[safeKey] = target.name
             }
 
             // 1) App icon slots — public endpoint, no credentials needed.
@@ -138,16 +158,17 @@ val fetchAppIcons by tasks.registering {
             // 2) Per-business icons — needs the admin businesses list (JWT).
             var token: String? = null
             if (phone.isNotBlank() && password.isNotBlank()) {
-                val loginRequest = java.net.http.HttpRequest.newBuilder(java.net.URI.create("$server/api/v1/auth/login"))
-                    .timeout(java.time.Duration.ofSeconds(30))
+                val loginBuilder = HttpRequest.newBuilder(URI.create("$server/api/v1/auth/login"))
+                    .timeout(Duration.ofSeconds(30))
                     .header("Content-Type", "application/json")
-                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(
-                        """{"phone":"${jsonEscape(phone)}","password":"${jsonEscape(password)}"}"""
-                    ))
-                    .build()
-                val loginResponse = client.send(loginRequest, java.net.http.HttpResponse.BodyHandlers.ofByteArray())
+                val body = """{"phone":"${jsonEscape(phone)}","password":"${jsonEscape(password)}"}"""
+                val loginResponse = client.send(
+                    loginBuilder.POST(HttpRequest.BodyPublishers.ofString(body)).build(),
+                    HttpResponse.BodyHandlers.ofByteArray()
+                )
                 token = if (loginResponse.statusCode() in 200..299) {
-                    (slurper.parseText(loginResponse.body().toString(Charsets.UTF_8)) as? Map<*, *>)?.get("access_token")?.toString()
+                    (slurper.parseText(loginResponse.body().toString(Charsets.UTF_8)) as? Map<*, *>)
+                        ?.get("access_token")?.toString()
                 } else {
                     logger.warn("fetchAppIcons: login to $server failed (HTTP ${loginResponse.statusCode()}); per-business icons skipped.")
                     null
@@ -167,14 +188,14 @@ val fetchAppIcons by tasks.registering {
             }
 
             // 3) Drop stale baked icons and record what this build contains.
-            dir.listFiles()?.forEach { f ->
-                if (f.name != "manifest.json" && f.name.substringBeforeLast('.') !in written.keys) f.delete()
+            dir.listFiles()?.forEach { file ->
+                if (file.name != "manifest.json" && file.name.substringBeforeLast('.') !in written.keys) file.delete()
             }
-            dir.newFile("manifest.json").writeText(
-                groovy.json.JsonOutput.toJson(
+            File(dir, "manifest.json").writeText(
+                JsonOutput.toJson(
                     mapOf(
                         "server" to server,
-                        "fetched_at" to java.time.Instant.now().toString(),
+                        "fetched_at" to Instant.now().toString(),
                         "icons" to written.toSortedMap()
                     )
                 )

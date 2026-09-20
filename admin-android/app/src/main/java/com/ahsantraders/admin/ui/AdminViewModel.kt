@@ -92,7 +92,11 @@ class AdminViewModel(private val repo: AdminRepository) : ViewModel() {
         }
         val id = s.business?.id.orEmpty()
         when (s.page) {
-            Page.HOME -> { val result = api.dashboard(); updateState { it.copy(dashboard = result) } }
+            Page.HOME -> {
+                val result = api.dashboard()
+                val iconRows = runCatching { api.icons() }.getOrDefault(emptyList())
+                updateState { it.copy(dashboard = result, icons = if (iconRows.isNotEmpty()) iconRows else it.icons) }
+            }
             Page.BUSINESS -> {
                 val summary = api.summary(id)
                 updateState { it.copy(summary = summary, business = summary.business) }

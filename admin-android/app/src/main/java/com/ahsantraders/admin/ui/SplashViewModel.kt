@@ -18,7 +18,7 @@ sealed interface SplashNavigationTarget {
 /**
  * Manages the splash screen state and session evaluation.
  * - Reads JWT token from encrypted SessionStore.
- * - Enforces minimum visible duration of ~1200ms to eliminate visual flicker.
+ * - Enforces minimum visible duration of 2500ms (2 to 3 seconds) to ensure brand visibility.
  * - Controls the system splash screen keep-on-screen condition (Layer 1).
  */
 class SplashViewModel(private val repo: AdminRepository) : ViewModel() {
@@ -58,9 +58,9 @@ class SplashViewModel(private val repo: AdminRepository) : ViewModel() {
                 SplashNavigationTarget.Login
             }
 
-            // Enforce minimum visible duration of ~1200ms
+            // Enforce visible duration of 2500ms (2 to 3 seconds)
             val elapsed = System.currentTimeMillis() - startTime
-            val remaining = (1200L - elapsed).coerceAtLeast(0L)
+            val remaining = (2500L - elapsed).coerceAtLeast(0L)
             if (remaining > 0L) {
                 delay(remaining)
             }

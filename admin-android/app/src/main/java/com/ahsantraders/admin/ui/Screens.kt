@@ -189,7 +189,7 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
     if (b.type == "BROILER") {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ActionTile("Create batch", Icons.Default.AddCircle, modifier = Modifier.weight(1f)) { vm.openForm(FormKind.BATCH_CREATE) }
-            ActionTile("Batches", Icons.Default.Eco, Lpg, Modifier.weight(1f)) { vm.go(Page.BATCHES) }
+            ActionTile("Batches", Icons.Default.Eco, Lpg, modifier = Modifier.weight(1f)) { vm.go(Page.BATCHES) }
         }
         summary?.batches?.forEach { batch -> BatchCard(batch) { vm.openBatch(batch) } }
     } else if (summary?.day?.status != "CLOSED") {
@@ -215,7 +215,7 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
                 customImageUrl = expenseIconUrl,
                 modifier = Modifier.weight(1f)
             ) { vm.openForm(FormKind.EXPENSE) }
-            if (b.type == "CHICKEN") ActionTile("Pota-Kaliji sale", Icons.Default.Restaurant, Chicken, Modifier.weight(1f)) { vm.openForm(FormKind.BYPRODUCT) }
+            if (b.type == "CHICKEN") ActionTile("Pota-Kaliji sale", Icons.Default.Restaurant, Chicken, modifier = Modifier.weight(1f)) { vm.openForm(FormKind.BYPRODUCT) }
         }
     }
     LinkRow("Stock", Icons.Default.Inventory2, customImageUrl = stockIconUrl) { vm.go(Page.STOCK) }

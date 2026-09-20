@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -29,6 +30,8 @@ import kotlinx.coroutines.launch
 
 @Composable fun AdminApp(s: AdminState, vm: AdminViewModel, onLogout: (() -> Unit)? = null) {
     if (s.user == null) { LoginScreen(s, vm); return }
+    // Header icon: live app_logo → app_logo baked into this build → saved lockup.
+    val logoUrl = findActionIconUrl(vm.server, s.icons, "app_logo", "APP_LOGO", "app_icon", "LOGO")
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var chooseKind by remember { mutableStateOf<FormKind?>(null) }
@@ -40,10 +43,15 @@ import kotlinx.coroutines.launch
     BackHandler(enabled = s.page != Page.HOME || s.draft != null || drawer.isOpen || s.saving) {
         if (!s.saving) { if (drawer.isOpen) scope.launch { drawer.close() } else back() }
     }
+    // The side bar opens as a panel INSIDE the mobile screen — it never covers
+    // the full screen. A fixed, screen-relative width (capped so the rest of the
+    // app stays visible behind the scrim) keeps it a compact in-app drawer.
+    val drawerSheetWidth = (LocalConfiguration.current.screenWidthDp * 0.72f).dp
+        .coerceIn(240.dp, 300.dp)
     ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = !s.saving && s.draft == null, drawerContent = {
-        ModalDrawerSheet(drawerContainerColor = Paper) {
+        ModalDrawerSheet(drawerContainerColor = Paper, modifier = Modifier.width(drawerSheetWidth)) {
             Column(Modifier.fillMaxWidth().background(Forest).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                Brand(true)
+                Brand(true, logoUrl)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(Icons.Default.AccountCircle, null, tint = Color.White, modifier = Modifier.size(42.dp))
                     Column {
@@ -67,13 +75,13 @@ import kotlinx.coroutines.launch
                 NavigationDrawerItem(label = { Text(tr("Settings")) }, selected = s.page == Page.SETTINGS, icon = { Icon(Icons.Default.Settings, null) }, onClick = { scope.launch { drawer.close() }; vm.go(Page.SETTINGS) })
                 NavigationDrawerItem(label = { Text(tr("Sign out")) }, selected = false, icon = { Icon(Icons.Default.Logout, null) }, onClick = { scope.launch { drawer.close() }; logout = true })
             }
-            Text("AHSAN TRADERS  •  ADMIN", modifier = Modifier.fillMaxWidth().background(Mint).padding(20.dp), color = Forest, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text("AHSAN TRADERS", modifier = Modifier.fillMaxWidth().background(Mint).padding(20.dp), color = Forest, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
     }) {
         Box(Modifier.fillMaxSize()) {
             Scaffold(containerColor = Paper, topBar = {
                 TopAppBar(title = {
-                    if (s.page == Page.HOME && s.draft == null) Brand(true)
+                    if (s.page == Page.HOME && s.draft == null) Brand(true, logoUrl)
                     else Text(tr(s.draft?.let { formTitle(it.kind) } ?: pageTitle(s.page)), maxLines = 1, style = MaterialTheme.typography.titleMedium)
                 }, navigationIcon = {
                     IconButton(onClick = { if (s.page == Page.HOME && s.draft == null) scope.launch { drawer.open() } else back() }, enabled = !s.saving) {
@@ -88,7 +96,9 @@ import kotlinx.coroutines.launch
                     NavigationBarItem(selected = s.page == Page.LEDGER || s.page == Page.DAY, onClick = { chooseKind = FormKind.SALE }, icon = { Icon(Icons.Default.PointOfSale, null) }, label = { Text(tr("Sales")) }, enabled = !s.saving)
                     NavigationBarItem(selected = s.page == Page.EXPENSES, onClick = { chooseKind = FormKind.EXPENSE }, icon = { Icon(Icons.Default.AccountBalanceWallet, null) }, label = { Text(tr("Expenses")) }, enabled = !s.saving)
                     NavigationBarItem(selected = s.page == Page.REPORTS, onClick = { vm.go(Page.REPORTS) }, icon = { Icon(Icons.Default.BarChart, null) }, label = { Text(tr("Reports")) }, enabled = !s.saving)
-                    NavigationBarItem(selected = s.page == Page.SETTINGS, onClick = { vm.go(Page.SETTINGS) }, icon = { Icon(Icons.Default.MoreHoriz, null) }, label = { Text(tr("More")) }, enabled = !s.saving)
+                    // Profile details live in Settings — so the tab is labelled
+                    // "Settings" (not "More"); it opens the profile card + options.
+                    NavigationBarItem(selected = s.page == Page.SETTINGS, onClick = { vm.go(Page.SETTINGS) }, icon = { Icon(Icons.Default.Person, null) }, label = { Text(tr("Settings")) }, enabled = !s.saving)
                 }
             }) { padding ->
                 Column(Modifier.padding(padding).fillMaxSize()) {
@@ -143,16 +153,16 @@ fun pageTitle(page: Page): String = when (page) {
     Page.USERS -> "Users & access"; Page.USER -> "User details"; Page.ADD_USER -> "Add user"; Page.ICONS -> "Screen icons"
 }
 @Composable fun LoginScreen(s: AdminState, vm: AdminViewModel, onLoginSuccess: (() -> Unit)? = null) {
-    var server by rememberSaveable { mutableStateOf(vm.server) }
     var phone by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(false) }
     val busy = s.loading || s.saving
     // Successful login populates s.user; move on to the dashboard then.
     LaunchedEffect(s.user) { if (s.user != null) onLoginSuccess?.invoke() }
+    val logoUrl = findActionIconUrl(vm.server, s.icons, "app_logo", "APP_LOGO", "app_icon", "LOGO")
     Column(Modifier.fillMaxSize().background(Paper).navigationBarsPadding().verticalScroll(rememberScrollState()).imePadding()) {
         Column(Modifier.fillMaxWidth().background(Forest).statusBarsPadding().padding(horizontal = 28.dp, vertical = 40.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-            Brand()
+            Brand(liveUrl = logoUrl)
             Text("Your business.\nAt your fingertips.", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("CHICKEN  /  LPG  /  BROILER", color = Gold, fontSize = 11.sp, letterSpacing = 2.sp)
         }
@@ -160,10 +170,12 @@ fun pageTitle(page: Page): String = when (page) {
             SectionTitle("Sign in", "Use the administrator account created with the backend seed command.")
             s.error?.let { Banner(it, true, vm::dismissError) }
             s.notice?.let { Banner(it, false, vm::dismissNotice) }
-            OutlinedTextField(server, { server = it }, label = { Text(tr("Server address")) }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), supportingText = { Text("Emulator: http://10.0.2.2:8000 · Phone: computer LAN IP") })
+            // The backend address is fixed at build time (APP_SERVER_URL
+            // environment variable / appServerUrl in gradle.properties), so it
+            // is not shown or typed here — vm.server already holds it.
             OutlinedTextField(phone, { phone = it }, label = { Text(tr("Phone number")) }, placeholder = { Text("03001234567") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), supportingText = { Text("0300… or +92300… both work") })
             OutlinedTextField(password, { password = it }, label = { Text(tr("Password")) }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { IconButton(onClick = { visible = !visible }) { Icon(if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility, "Toggle password visibility") } })
-            Button(onClick = { vm.login(server, phone, password) }, modifier = Modifier.fillMaxWidth().height(54.dp), enabled = !busy) {
+            Button(onClick = { vm.login(vm.server, phone, password) }, modifier = Modifier.fillMaxWidth().height(54.dp), enabled = !busy) {
                 if (busy) CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp) else Text(tr("Sign in"))
             }
             Text("Admin access only. The backend must be running. No financial changes are queued while offline.", color = Muted, style = MaterialTheme.typography.bodySmall)

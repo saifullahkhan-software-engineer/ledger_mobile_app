@@ -6,7 +6,7 @@ An Admin-first implementation of the supplied screen reference, using Kotlin, Je
 
 ## What is implemented
 
-- Configurable API server address and phone/password login for ADMIN/SUPERADMIN accounts.
+- Backend address baked in at build time (`APP_SERVER_URL` environment variable or `appServerUrl` in `gradle.properties` → `BuildConfig.SERVER_URL`); the sign-in screen only asks for phone and password. Login for ADMIN/SUPERADMIN accounts.
 - Dashboard with real sales/profit totals and yesterday comparisons. No fabricated sample metrics.
 - Assigned-business drawer and red Chicken, green Broiler and blue LPG module cards.
 - Chicken/LPG purchase, sale, expense and byproduct forms; LPG retail/commercial channel selection.
@@ -102,16 +102,28 @@ Check `http://127.0.0.1:8000/health` and `/docs` on your computer. Keep this ter
 2. Wait for Gradle sync and SDK downloads to finish.
 3. Select the **app** run configuration and your emulator/device.
 4. Click **Run ▶**.
-5. On the app's sign-in screen, enter the API server address:
+5. Point the app at the API at **build time** (the sign-in screen no longer shows a server field — it picks the address up from the build environment automatically):
 
-| Android device | Server address |
+| Android device | How to set the backend URL before building |
 |---|---|
-| Standard Android Studio emulator | `http://10.0.2.2:8000` |
-| Physical phone on the same Wi-Fi | `http://YOUR_COMPUTER_LAN_IP:8000` |
-| Physical phone over USB with `adb reverse tcp:8000 tcp:8000` | `http://127.0.0.1:8000` |
-| Hosted API | Your actual HTTPS origin, e.g. `https://api.example.com` |
+| Standard Android Studio emulator | Nothing — the built-in default is `http://10.0.2.2:8000` |
+| Physical phone on the same Wi-Fi | `APP_SERVER_URL=http://YOUR_COMPUTER_LAN_IP:8000` |
+| Physical phone over USB with `adb reverse tcp:8000 tcp:8000` | `APP_SERVER_URL=http://127.0.0.1:8000` |
+| Hosted API | `APP_SERVER_URL=https://api.example.com` |
 
-Do not add `/docs` or `/api/v1` to the server address. Ordinary `localhost` on a phone points to the phone, not your computer (unless using the explicit USB reverse setup).
+Set it as an environment variable, or put `appServerUrl=…` in `gradle.properties` (or pass `-PappServerUrl=…` once on the command line), then rebuild. The value is compiled into the APK as `BuildConfig.SERVER_URL` and used app-wide; the active address is shown under **Settings → About this app**.
+
+Do not add `/docs` or `/api/v1` to the URL. Ordinary `localhost` on a phone points to the phone, not your computer (unless using the explicit USB reverse setup).
+
+### How the backend URL works (standard mobile practice)
+
+The URL is a **build-time constant**, not something the app asks for:
+
+1. `app/build.gradle.kts` resolves it once per build — priority: `APP_SERVER_URL` environment variable → `appServerUrl` in `gradle.properties` (or `-PappServerUrl=…`) → emulator default `http://10.0.2.2:8000`.
+2. It is injected with `buildConfigField("String", "SERVER_URL", …)` and compiled into `BuildConfig.SERVER_URL` inside the APK.
+3. `SessionStore` uses it as the default backend address; login, the API client and Settings all read the same value.
+
+This is the usual way Android apps pin an API origin: a Gradle/environment-driven `BuildConfig` field (larger teams do the same with `dev/staging/prod` build flavors or CI environment variables). Benefits: no user can accidentally point the app at the wrong server, the production URL never appears in the UI, and switching backends is just a rebuild with a new value.
 
 6. Sign in with the **owner credentials created by `seed`**. There is no hardcoded login. Investor credentials are intentionally rejected.
 

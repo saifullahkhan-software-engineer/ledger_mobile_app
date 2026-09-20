@@ -13,6 +13,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -66,7 +67,7 @@ private data class IconSlot(
 )
 
 private val iconSlots = listOf(
-    IconSlot("app_logo", "Brand & Header Logo", "Main AT badge on the mobile app bar and drawer.", Icons.Default.Eco, Forest),
+    IconSlot("app_logo", "Brand & Header Logo", "Brand lockup on the app bar and drawer. The saved logo asset (AT badge + AHSAN TRADERS) is displayed.", Icons.Default.Eco, Forest),
     IconSlot("business_chicken", "Chicken Shop Card Icon", "Red Chicken Shop card (first).", Icons.Default.Restaurant, Chicken),
     IconSlot("business_lpg", "LPG / Gas Business Card Icon", "Blue LPG / Gas card (second).", Icons.Default.LocalFireDepartment, Lpg),
     IconSlot("business_broiler", "Poultry Farm (Broiler) Card Icon", "Green Poultry Farm card (third).", Icons.Default.Agriculture, Broiler),
@@ -151,7 +152,7 @@ private fun PreviewImage(validUrl: String?, thumb: Bitmap?, fallback: @Composabl
 fun IconsScreen(s: AdminState, vm: AdminViewModel) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            "Super admin: set the image shown on the mobile app for each screen card, app logo and quick action. Uploaded images are stored in the PostgreSQL database; the server returns a short /api/v1/images/… URL and the apps load the image from that URL — so delivery still works exactly like any hosted image.",
+            "Super admin: set the image shown on the mobile app for each screen card, app logo and quick action. Uploaded images are stored in the PostgreSQL database; the server returns a short /api/v1/images/… URL and the apps load the image from that URL — so delivery still works exactly like any hosted image. On every app build, the Gradle fetchAppIcons task also bakes these saved images into the APK (assets/saved_icons) so the app can use them directly, even offline.",
             color = Muted, fontSize = 12.sp
         )
         iconSlots.forEach { slot ->
@@ -177,7 +178,7 @@ private fun IconSlotCard(slot: IconSlot, saved: AppIconItem?, s: AdminState, vm:
     val enabled = !s.saving && !s.uploading
     Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(14.dp)) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Box(Modifier.size(48.dp).background(slot.color, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(48.dp).background(slot.color, CircleShape), contentAlignment = Alignment.Center) {
                 PreviewImage(displayUrl, null) { Icon(slot.icon, null, tint = Color.White, modifier = Modifier.size(26.dp)) }
             }
             Column(Modifier.weight(1f)) {
@@ -221,7 +222,7 @@ private fun BusinessIconCard(business: Business, s: AdminState, vm: AdminViewMod
         shape = RoundedCornerShape(14.dp),
     ) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Box(Modifier.size(48.dp).background(sectorColor(business.type), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(48.dp).background(sectorColor(business.type), CircleShape), contentAlignment = Alignment.Center) {
                 PreviewImage(displayUrl, null) { SectorIcon(business.type, tint = Color.White, modifier = Modifier.size(26.dp)) }
             }
             Column(Modifier.weight(1f)) {
@@ -307,7 +308,7 @@ private fun IconEditorDialog(
                     val previewUrl = if (tab == IconTab.URL && draft.trim().startsWith("http")) draft.trim()
                         else if (tab == IconTab.UPLOAD && originalUrl.isNotBlank()) originalUrl
                         else null
-                    Box(Modifier.size(64.dp).clip(RoundedCornerShape(14.dp)).background(previewColor), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(64.dp).clip(CircleShape).background(previewColor), contentAlignment = Alignment.Center) {
                         PreviewImage(previewUrl, if (tab == IconTab.UPLOAD) pickedBmp else null) { fallback() }
                     }
                     Column(Modifier.weight(1f)) {

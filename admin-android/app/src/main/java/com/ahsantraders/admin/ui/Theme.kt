@@ -55,6 +55,7 @@ private val urdu = mapOf(
     "Daily" to "روزانہ", "Weekly" to "ہفتہ وار", "Monthly" to "ماہانہ", "Apply dates" to "تاریخیں لاگو کریں",
     "From" to "سے", "To" to "تک", "Business-wise profit" to "کاروبار کے لحاظ سے منافع",
     "Business summary" to "کاروباری خلاصہ", "Total costs & expenses" to "کل لاگت اور اخراجات",
+    "Overall View" to "مجموعی منظر", "Business charts" to "کاروبار چارٹس", "Costs" to "لاگت",
     "Investor distribution" to "سرمایہ کاروں میں تقسیم", "Retained" to "برقرار رقم",
     "Edit profile" to "پروفائل تبدیل کریں", "Change password" to "پاس ورڈ تبدیل کریں", "About this app" to "ایپ کے بارے میں",
     "Name" to "نام", "Supplier name" to "سپلائر کا نام", "Add supplier" to "سپلائر شامل کریں",

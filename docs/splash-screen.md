@@ -20,7 +20,7 @@ The splash is implemented as **two stacked layers** that dissolve into each othe
 
 | Layer | Technology | Responsibility |
 |---|---|---|
-| **Layer 1 — System splash** | `androidx.core:core-splashscreen` + Android 12+ SplashScreen API (`Theme.App.Starting`) | Renders instantly, before any Kotlin/Compose code runs. Shows only the AT mark on the deep forest-green background. |
+| **Layer 1 — System splash** | `androidx.core:core-splashscreen` + Android 12+ SplashScreen API (`Theme.App.Starting`) | Renders instantly, before any Kotlin/Compose code runs. Shows the **saved logo lockup** (AT badge + "AHSAN TRADERS" wordmark) on the deep forest-green background — the same image that opens the Compose splash, so the two layers read as one single branded splash instead of a plain green screen. |
 | **Layer 2 — Compose splash** | `SplashScreen()` composable (`ui/SplashScreen.kt`) + `SplashViewModel` | Fade-in brand content: logo lockup, subtitle, three sector circles, and tagline. Also evaluates the session and triggers navigation. |
 
 `MainActivity.onCreate` wires the two together:
@@ -35,7 +35,7 @@ splashScreen.setKeepOnScreenCondition {            // hold until Layer 2 paints
 ### Layer 1 — system splash (native)
 
 - **Background:** `#0A3B22` (deep forest green) — set via `windowSplashScreenBackground`.
-- **Icon:** `@drawable/ic_brand` (the white/gold "AT" monogram) — set via `windowSplashScreenAnimatedIcon`.
+- **Icon:** `@drawable/logo_lockup` (the saved AT badge + "AHSAN TRADERS" wordmark, same asset as the Layer 2 hero) — set via `windowSplashScreenAnimatedIcon`. The platform scales and centers it; because it is the exact same image the Compose splash opens with, there is no separate "plain green" stage visible to the user.
 - **Theme:** `Theme.App.Starting` (parent `Theme.SplashScreen`), with `postSplashScreenTheme = Theme.Ahsan`.
 - It is held on screen by `setKeepOnScreenCondition` until `SplashViewModel.onFirstFrameRendered()` sets `isSystemSplashLoading = false` — i.e. until Compose has actually drawn its first frame.
 - Older devices (API < 31) get the same look through `windowBackground = #0A3B22` in `Theme.AhsanBase`.
@@ -52,7 +52,7 @@ This is the rich, visible splash. It fades in over ~200 ms and contains the full
 App process starts
       │
       ▼
-installSplashScreen()  ──►  Layer 1 (native) shows: deep green + AT monogram
+installSplashScreen()  ──►  Layer 1 (native) shows: deep green + saved logo lockup
       │
       ▼
 SplashViewModel.init ──► evaluateSessionAndTiming()
@@ -125,8 +125,8 @@ The Compose splash is a full-screen `Box` with `contentAlignment = Center` wrapp
 │             3 Businesses  |  1 Vision       │
 │                                             │
 │      ● Red        ● Blue       ● Green      │
-│     Chicken      LPG          Poultry       │
-│      Shop       Business       Farm         │
+│     Chicken      LPG          Broiler       │
+│      Shop       Business       Farming      │
 │                                             │
 │        ~ Grow Together With Trust ~          │
 │                                             │
@@ -145,7 +145,7 @@ The Compose splash is a full-screen `Box` with `contentAlignment = Center` wrapp
    |---|---|---|---|
    | 1 | `ChickenRed` | chicken/rooster silhouette (`ic_sector_chicken`) | Chicken Shop |
    | 2 | `LpgBlue` | gas-cylinder + flame (`ic_sector_lpg`) | LPG Business |
-   | 3 | `BroilerGreen` | broiler silhouette (`ic_sector_broiler`) | Poultry Farm |
+   | 3 | `BroilerGreen` | broiler silhouette (`ic_sector_broiler`) | Broiler Farming |
    - Circle diameter: **15% of screen width**, clamped to 50–66 dp.
    - Icons are white at **50% of the circle diameter**; labels are sans-serif 10.5 sp, two lines, `maxLines = 2`.
    - Each circle **stages in** after its predecessor (`0 ms → 110 ms → 220 ms`) for a light sequential entrance.
@@ -185,9 +185,9 @@ Insets are respected on all four edges: `statusBarsPadding()` + `navigationBarsP
 | Hero (logo + subtitle) | `fadeIn` | `tween 200 ms` at frame 0 |
 | Sector circle 1 (Chicken) | `fadeIn` | `tween 240 ms`, +0 ms |
 | Sector circle 2 (LPG) | `fadeIn` | `tween 240 ms`, +110 ms |
-| Sector circle 3 (Poultry) | `fadeIn` | `tween 240 ms`, +220 ms |
+| Sector circle 3 (Broiler Farming) | `fadeIn` | `tween 240 ms`, +220 ms |
 | Footer slogan | `fadeIn` | `tween 240 ms` |
-| System→Compose handoff | none needed: both layers share `#0A3B22` + AT monogram, so the swap is seamless |
+| System→Compose handoff | none needed: both layers share `#0A3B22` + the saved logo lockup, so the swap is seamless |
 
 The entire sequence completes within ~0.5 s after the first frame, comfortably inside a 1.2–2.5 s splash window with no looping motion.
 
@@ -213,8 +213,7 @@ The entire sequence completes within ~0.5 s after the first frame, comfortably i
 | Layer 1 ↔ Layer 2 wiring | `admin-android/app/src/main/java/com/ahsantraders/admin/MainActivity.kt` |
 | Brand palette + splash canvas color | `admin-android/app/src/main/java/com/ahsantraders/admin/ui/Color.kt` |
 | System splash theme (bg + icon) | `admin-android/app/src/main/res/values/styles.xml` and `values-v31/styles.xml` |
-| AT monogram (Layer 1 icon) | `admin-android/app/src/main/res/drawable/ic_brand.xml` |
-| Logo lockup PNG + fallback vector | `drawable{,-xhdpi,-xxhdpi}/logo_lockup.png`, `drawable/ic_logo_lockup.xml` |
+| Logo lockup (Layer 1 icon + Layer 2 hero — the saved icon) | `drawable{,-xhdpi,-xxhdpi}/logo_lockup.png`, `drawable/ic_logo_lockup.xml` (vector fallback) |
 | Sector icons | `drawable/ic_sector_{chicken,lpg,broiler}.xml` |
 | Slogan script font | `admin-android/app/src/main/res/font/script_font.ttf` |
 

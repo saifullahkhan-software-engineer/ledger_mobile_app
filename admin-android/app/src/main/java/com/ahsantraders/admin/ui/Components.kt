@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package com.ahsantraders.admin.ui
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
@@ -19,9 +20,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -86,6 +89,82 @@ fun decodeDataUriOrBase64Bitmap(src: String): Bitmap? {
         val bytes = Base64.decode(raw, Base64.DEFAULT)
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     }.getOrNull()
+}
+
+// ---------------------------------------------------------------------------
+// Icons baked in at build time.
+//
+// The Gradle task `fetchAppIcons` (see build.gradle.kts) downloads the icons
+// that are saved in the backend database — the ones uploaded through the app's
+// "Screen icons" screen — into assets/saved_icons/<key>.<ext> on EVERY build,
+// so they get packaged inside the APK. The app then uses those icons directly
+// (no runtime download, works offline).
+//
+// Resolution order for every icon slot:
+//   1. live image URL from the server (if one is currently set) — always the freshest
+//   2. the icon baked into this build from the database
+//   3. the bundled default (sector vector icon / saved logo lockup)
+// ---------------------------------------------------------------------------
+private const val BUILT_IN_ICON_DIR = "saved_icons"
+private val builtInIconExtensions = listOf("png", "jpg", "jpeg", "webp", "gif", "ico")
+
+/** Loads `saved_icons/<key>.<ext>` from the APK assets, or null when this build has no baked icon for it. */
+fun loadBuiltInIcon(context: Context, key: String): Bitmap? {
+    val safe = key.trim().lowercase().replace(Regex("[^a-z0-9]+"), "_").ifBlank { "icon" }
+    for (ext in builtInIconExtensions) {
+        val bmp = runCatching {
+            context.assets.open("$BUILT_IN_ICON_DIR/$safe.$ext").use { BitmapFactory.decodeStream(it) }
+        }.getOrNull()
+        if (bmp != null) return bmp
+    }
+    return null
+}
+
+/**
+ * Resolves one icon with the built-in priority: live server URL → icon baked
+ * into this build from the database → the provided default. Custom images are
+ * always shown in a CIRCULAR container (never a square one).
+ */
+@Composable
+fun ResolvedIcon(
+    liveUrl: String?,
+    builtInKeys: List<String>,
+    modifier: Modifier,
+    shape: Shape = CircleShape,
+    fallback: @Composable () -> Unit
+) {
+    val context = LocalContext.current
+    if (!liveUrl.isNullOrBlank()) {
+        DynamicImage(
+            src = liveUrl,
+            modifier = modifier.clip(shape),
+            contentScale = ContentScale.Crop,
+            fallback = { builtInOrFallback(builtInKeys, context, modifier, shape, fallback) }
+        )
+    } else {
+        builtInOrFallback(builtInKeys, context, modifier, shape, fallback)
+    }
+}
+
+@Composable
+private fun builtInOrFallback(
+    keys: List<String>,
+    context: Context,
+    modifier: Modifier,
+    shape: Shape,
+    fallback: @Composable () -> Unit
+) {
+    val bmp = remember(keys) { keys.firstNotNullOfOrNull { loadBuiltInIcon(context, it) } }
+    if (bmp != null) {
+        Image(
+            bitmap = bmp.asImageBitmap(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = modifier.clip(shape)
+        )
+    } else {
+        fallback()
+    }
 }
 
 @Composable
@@ -162,39 +241,78 @@ fun SectorIcon(type: String, modifier: Modifier = Modifier, tint: Color = Color.
     )
 }
 
+/**
+ * Business icon for cards: the uploaded icon (live from the server, or the
+ * copy baked into this build from the database) is shown in a CIRCULAR
+ * container; the bundled saved vector icon stays the final fallback.
+ */
 @Composable
 fun DynamicSectorIcon(
     type: String,
     imageUrl: String?,
     modifier: Modifier = Modifier,
     tint: Color = Color.White,
-    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(8.dp)
+    shape: Shape = CircleShape
 ) {
-    if (!imageUrl.isNullOrBlank()) {
-        DynamicImage(
-            src = imageUrl,
-            modifier = modifier.clip(shape),
-            contentScale = ContentScale.Crop,
-            fallback = { SectorIcon(type = type, modifier = modifier, tint = tint) }
-        )
-    } else {
+    ResolvedIcon(
+        liveUrl = imageUrl,
+        builtInKeys = listOf("business_${type.lowercase()}"),
+        modifier = modifier,
+        shape = shape
+    ) {
         SectorIcon(type = type, modifier = modifier, tint = tint)
     }
 }
 
+/**
+ * Brand lockup for the top app bar, side bar and login header.
+ *
+ * Resolution order: live `app_logo` from the server → `app_logo` baked into
+ * this build from the database → the saved logo asset (`logo_lockup.png`,
+ * the AT badge + "AHSAN TRADERS" wordmark). Either way the brand looks
+ * identical on every screen of the app.
+ *
+ * @param compact small size for the top app bar / side bar header.
+ */
 @Composable
-fun Brand(compact: Boolean = false) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Icon(
-            painterResource(R.drawable.ic_brand),
-            contentDescription = "Ahsan Traders",
-            tint = Color.Unspecified,
-            modifier = Modifier.size(if (compact) 40.dp else 64.dp)
+fun Brand(compact: Boolean = false, liveUrl: String? = null) {
+    // Saved lockup aspect ratio is 360:140 (≈ 2.571:1) — keep both dimensions in
+    // sync with it so the image is never stretched.
+    val height = if (compact) 34.dp else 72.dp
+    val size = Modifier
+        .height(height)
+        .width((height.value * 2.571f).dp)
+    if (!liveUrl.isNullOrBlank()) {
+        DynamicImage(
+            src = liveUrl,
+            modifier = size,
+            contentScale = ContentScale.Fit,
+            fallback = { builtInLockup(size) }
         )
-        Column {
-            Text("AHSAN", color = Color.White, fontWeight = FontWeight.Bold, fontSize = if (compact) 18.sp else 28.sp, letterSpacing = 3.sp)
-            Text("T R A D E R S", color = Gold, fontWeight = FontWeight.SemiBold, fontSize = if (compact) 9.sp else 12.sp)
-        }
+    } else {
+        builtInLockup(size)
+    }
+}
+
+/** `app_logo` baked into this build from the database, else the saved logo lockup. */
+@Composable
+private fun builtInLockup(modifier: Modifier) {
+    val context = LocalContext.current
+    val bmp = remember { loadBuiltInIcon(context, "app_logo") }
+    if (bmp != null) {
+        Image(
+            bitmap = bmp.asImageBitmap(),
+            contentDescription = "Ahsan Traders",
+            contentScale = ContentScale.Fit,
+            modifier = modifier
+        )
+    } else {
+        Image(
+            painter = painterResource(R.drawable.logo_lockup),
+            contentDescription = "Ahsan Traders",
+            modifier = modifier,
+            contentScale = ContentScale.Fit
+        )
     }
 }
 
@@ -255,6 +373,7 @@ fun ActionTile(
     icon: ImageVector,
     color: Color = Green,
     customImageUrl: String? = null,
+    builtInKeys: List<String> = emptyList(),
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
@@ -264,16 +383,11 @@ fun ActionTile(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (!customImageUrl.isNullOrBlank()) {
-                DynamicImage(
-                    src = customImageUrl,
-                    modifier = Modifier.size(24.dp).clip(RoundedCornerShape(4.dp)),
-                    contentScale = ContentScale.Crop,
-                    fallback = { Icon(icon, null, tint = Color.White) }
-                )
-            } else {
-                Icon(icon, null, tint = Color.White)
-            }
+            ResolvedIcon(
+                liveUrl = customImageUrl,
+                builtInKeys = builtInKeys,
+                modifier = Modifier.size(24.dp)
+            ) { Icon(icon, null, tint = Color.White) }
             Text(tr(label), color = Color.White, style = MaterialTheme.typography.labelLarge)
         }
     }
@@ -285,6 +399,7 @@ fun LinkRow(
     icon: ImageVector,
     subtitle: String? = null,
     customImageUrl: String? = null,
+    builtInKeys: List<String> = emptyList(),
     translate: Boolean = true,
     onClick: () -> Unit
 ) {
@@ -294,16 +409,11 @@ fun LinkRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            if (!customImageUrl.isNullOrBlank()) {
-                DynamicImage(
-                    src = customImageUrl,
-                    modifier = Modifier.size(24.dp).clip(RoundedCornerShape(4.dp)),
-                    contentScale = ContentScale.Crop,
-                    fallback = { Icon(icon, null, tint = Green) }
-                )
-            } else {
-                Icon(icon, null, tint = Green)
-            }
+            ResolvedIcon(
+                liveUrl = customImageUrl,
+                builtInKeys = builtInKeys,
+                modifier = Modifier.size(24.dp)
+            ) { Icon(icon, null, tint = Green) }
             Column(Modifier.weight(1f)) {
                 Text(if (translate) tr(title) else title, fontWeight = FontWeight.Medium)
                 subtitle?.let { Text(it, fontSize = 12.sp, color = Muted) }

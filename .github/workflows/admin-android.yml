@@ -23,6 +23,9 @@ jobs:
       # exposed via ANDROID_HOME/ANDROID_SDK_ROOT; a third-party setup action
       # is not needed (and android-actions/setup-android@v3 is unmaintained).
       - uses: gradle/actions/setup-gradle@v4
+      # To bake a specific backend into the CI APK, set a repository variable
+      # named APP_SERVER_URL (https://…) — app/build.gradle.kts picks it up
+      # automatically and compiles it into BuildConfig.SERVER_URL.
       - name: Install Android platform and build-tools
         run: |
           SDKMANAGER="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"

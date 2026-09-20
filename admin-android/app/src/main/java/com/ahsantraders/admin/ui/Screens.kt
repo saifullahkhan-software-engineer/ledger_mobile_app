@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ahsantraders.admin.data.*
 import java.time.LocalDate
+import kotlin.math.abs
 
 
 fun findActionIconUrl(server: String, icons: List<AppIconItem>, vararg candidateKeys: String): String? {
@@ -54,12 +55,6 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
 @Composable fun HomeScreen(s: AdminState, vm: AdminViewModel, choose: (FormKind) -> Unit) {
     Text(if (s.language == "ur") "خوش آمدید، ${s.user?.name.orEmpty()}" else "Welcome, ${s.user?.name.orEmpty()}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
     Text(if (s.language == "ur") "اپنے کاروبار ایک جگہ سنبھالیں" else "Your businesses. One clear picture.", color = Muted)
-    s.dashboard?.let { report ->
-        SectionTitle("Today’s overview", "${report.start} · Asia/Karachi")
-        Metric("Total sales", rupees(report.total_sales), Icons.Default.Payments, report.yesterday?.total_sales, report.total_sales)
-        Metric("Net profit", rupees(report.total_profit), Icons.Default.TrendingUp, report.yesterday?.total_profit, report.total_profit)
-        Text("Open-day totals are provisional. Broiler revenue is recognized at harvest.", color = Muted, fontSize = 11.sp)
-    }
     SectionTitle("Your businesses")
     if (s.businesses.isEmpty() && !s.loading) Empty("No businesses assigned. Ask your owner for access.")
     s.businesses.chunked(3).forEach { group ->
@@ -119,6 +114,7 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
             label = "Add sale",
             icon = Icons.Default.AddCircle,
             customImageUrl = saleIconUrl,
+            builtInKeys = listOf("quick_sale", "ADD_SALE_ICON", "add_sale", "sale_icon"),
             modifier = Modifier.weight(1f)
         ) { choose(FormKind.SALE) }
         ActionTile(
@@ -126,19 +122,21 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
             icon = Icons.Default.AccountBalanceWallet,
             color = Color(0xFFE58B19),
             customImageUrl = expenseIconUrl,
+            builtInKeys = listOf("quick_expense", "ADD_EXPENSE_ICON", "add_expense", "expense_icon"),
             modifier = Modifier.weight(1f)
         ) { choose(FormKind.EXPENSE) }
     }
     LinkRow(
-        title = "Reports",
-        icon = Icons.Default.BarChart,
-        subtitle = "Daily, weekly and monthly performance",
-        customImageUrl = reportsIconUrl
+        title = "Overall View",
+        icon = Icons.Default.Insights,
+        subtitle = "Overall view and per-business charts",
+        customImageUrl = reportsIconUrl,
+        builtInKeys = listOf("quick_reports", "REPORTS_ICON", "reports", "reports_icon")
     ) { vm.go(Page.REPORTS) }
     Surface(color = Forest, shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Grow Together, With Trust", color = Gold, fontWeight = FontWeight.Medium)
-            Text("AHSAN TRADERS  •  ADMIN", color = Color.White.copy(alpha = .65f), fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
+            Text("AHSAN TRADERS", color = Color.White.copy(alpha = .65f), fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
         }
     }
 }
@@ -148,12 +146,12 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
     val bizBannerIconUrl = findBusinessIconUrl(vm.server, b, s.icons)
     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Brush.horizontalGradient(listOf(sectorColor(b.type), Forest))).padding(24.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            // Circular container (not square) for the uploaded business icon.
             DynamicSectorIcon(
                 type = b.type,
                 imageUrl = bizBannerIconUrl,
                 tint = Color.White,
-                modifier = Modifier.size(54.dp),
-                shape = RoundedCornerShape(12.dp)
+                modifier = Modifier.size(54.dp)
             )
             Column {
                 Text(b.name, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -198,6 +196,7 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
                 label = "Add sale",
                 icon = Icons.Default.AddCircle,
                 customImageUrl = saleIconUrl,
+                builtInKeys = listOf("quick_sale", "ADD_SALE_ICON", "add_sale", "sale_icon"),
                 modifier = Modifier.weight(1f)
             ) { vm.openForm(FormKind.SALE) }
             ActionTile(
@@ -213,15 +212,16 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
                 icon = Icons.Default.AccountBalanceWallet,
                 color = Color(0xFFE58B19),
                 customImageUrl = expenseIconUrl,
+                builtInKeys = listOf("quick_expense", "ADD_EXPENSE_ICON", "add_expense", "expense_icon"),
                 modifier = Modifier.weight(1f)
             ) { vm.openForm(FormKind.EXPENSE) }
             if (b.type == "CHICKEN") ActionTile("Pota-Kaliji sale", Icons.Default.Restaurant, Chicken, modifier = Modifier.weight(1f)) { vm.openForm(FormKind.BYPRODUCT) }
         }
     }
-    LinkRow("Stock", Icons.Default.Inventory2, customImageUrl = stockIconUrl) { vm.go(Page.STOCK) }
+    LinkRow("Stock", Icons.Default.Inventory2, customImageUrl = stockIconUrl, builtInKeys = listOf("quick_stock", "STOCK_ICON", "stock_icon", "stock")) { vm.go(Page.STOCK) }
     if (b.type != "BROILER") {
         LinkRow("Transaction history", Icons.Default.ReceiptLong) { vm.go(Page.LEDGER) }
-        LinkRow("Expenses", Icons.Default.AccountBalanceWallet, customImageUrl = expenseIconUrl) { vm.go(Page.EXPENSES) }
+        LinkRow("Expenses", Icons.Default.AccountBalanceWallet, customImageUrl = expenseIconUrl, builtInKeys = listOf("quick_expense", "ADD_EXPENSE_ICON", "add_expense", "expense_icon")) { vm.go(Page.EXPENSES) }
         LinkRow("Suppliers", Icons.Default.LocalShipping) { vm.go(Page.SUPPLIERS) }
         summary?.day?.takeIf { it.status == "OPEN" }?.let { day ->
             OutlinedButton(onClick = { confirmClose(day) }, enabled = !s.saving, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Lock, null); Spacer(Modifier.width(8.dp)); Text(tr("Close day")) }
@@ -288,6 +288,19 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
 @Composable fun ReportsScreen(s: AdminState, vm: AdminViewModel) {
     DateFilters(s, vm, true)
     s.report?.let { report ->
+        // Overall view — company-wide totals for the selected period.
+        SectionTitle("Overall View", "${report.start}  →  ${report.end}")
+        Panel {
+            DataRow("Total sales", rupees(report.total_sales))
+            DataRow("Total costs & expenses", rupees(report.total_cost_and_expenses))
+            HorizontalDivider()
+            DataRow("Net profit", rupees(report.total_profit), if (report.total_profit < 0) Chicken else Green)
+            if (report.businesses.any { it.open_days > 0 }) Text("Includes open days. These totals can change before settlement.", fontSize = 12.sp, color = Muted)
+        }
+        // A separate chart for every business in the report.
+        SectionTitle("Business charts", "Sales, costs and net profit per business for the selected period.")
+        if (report.businesses.isEmpty()) Empty()
+        report.businesses.forEach { business -> BusinessChart(business) }
         SectionTitle("Business-wise profit")
         Panel {
             report.businesses.forEach { business ->
@@ -311,12 +324,41 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
                     }
                     Text("Positive\nprofit mix", color = Muted, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 }
-                Text("Chart shows positive profits only; losses remain included in totals below.", color = Muted, fontSize = 11.sp)
+                Text("Chart shows positive profits only; losses remain included in totals above.", color = Muted, fontSize = 11.sp)
             }
         }
-        SectionTitle("Business summary")
-        Panel { DataRow("Total sales", rupees(report.total_sales)); DataRow("Total costs & expenses", rupees(report.total_cost_and_expenses)); HorizontalDivider(); DataRow("Net profit", rupees(report.total_profit), if (report.total_profit < 0) Chicken else Green) }
-        if (report.businesses.any { it.open_days > 0 }) Text("Includes open days. These totals can change before settlement.", fontSize = 12.sp, color = Muted)
+    }
+}
+
+/**
+ * Separate chart for one business: horizontal bars comparing sales, costs
+ * and net profit for the selected period. Bars scale against the largest
+ * value of that business so each chart is easy to read on its own.
+ */
+@Composable private fun BusinessChart(b: BusinessReport) {
+    Panel {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectorIcon(b.type, tint = sectorColor(b.type), modifier = Modifier.size(26.dp))
+            Text(b.name, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 10.dp).weight(1f))
+            Text(rupees(b.net_profit), color = if (b.net_profit < 0) Chicken else Green, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        }
+        val top = maxOf(b.revenue, b.cost_and_expenses, abs(b.net_profit), 1L)
+        ChartBar("Sales", b.revenue, top, Green)
+        ChartBar("Costs", b.cost_and_expenses, top, Color(0xFFE58B19))
+        ChartBar("Net profit", b.net_profit, top, if (b.net_profit >= 0) Green else Chicken)
+    }
+}
+
+@Composable private fun ChartBar(label: String, value: Long, max: Long, color: Color) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(tr(label), color = Muted, fontSize = 12.sp, modifier = Modifier.width(64.dp))
+        Box(Modifier.weight(1f).height(12.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xFFE4EFE9))) {
+            val fraction = (value.coerceAtLeast(0).toDouble() / max.toDouble()).toFloat().coerceIn(0f, 1f)
+            if (fraction > 0f) {
+                Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).clip(RoundedCornerShape(6.dp)).background(color))
+            }
+        }
+        Text(rupees(value), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Ink, textAlign = androidx.compose.ui.text.style.TextAlign.End, modifier = Modifier.width(88.dp))
     }
 }
 @Composable fun SecondaryScreen(s: AdminState, vm: AdminViewModel, confirmClose: (Day) -> Unit) {
@@ -377,9 +419,9 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
     LinkRow("Sign out", Icons.Default.Logout) { logout() }
     SectionTitle("About this app")
     Panel {
-        Text("Ahsan Traders Admin", fontWeight = FontWeight.Bold); Text("Version 1.0.0 • Native Android", color = Muted)
+        Text("Ahsan Traders", fontWeight = FontWeight.Bold); Text("Version 1.0.0 • Native Android", color = Muted)
         Text("Manage daily business operations and batch settlements. Server confirmation is required for every financial change.", color = Muted, fontSize = 12.sp)
         Text("Server: ${vm.server}", color = Muted, fontSize = 12.sp)
-        Text("To change servers, sign out. Notifications, customer accounts and real payment-provider integrations are not available in this MVP.", color = Muted, fontSize = 12.sp)
+        Text("The backend address is set at build time (APP_SERVER_URL environment variable or appServerUrl in gradle.properties). Notifications, customer accounts and real payment-provider integrations are not available in this MVP.", color = Muted, fontSize = 12.sp)
     }
 }

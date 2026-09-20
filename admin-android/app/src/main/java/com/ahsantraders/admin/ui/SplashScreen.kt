@@ -154,7 +154,7 @@ fun SplashScreen(
                         circleSize = circleSize,
                         circleColor = BroilerGreen,
                         iconRes = R.drawable.ic_sector_broiler,
-                        label = "Poultry\nFarm"
+                        label = "Broiler\nFarming"
                     )
                 }
             }

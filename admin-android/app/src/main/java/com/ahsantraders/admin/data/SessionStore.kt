@@ -2,6 +2,7 @@ package com.ahsantraders.admin.data
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
+import com.ahsantraders.admin.BuildConfig
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.security.KeyStore
@@ -14,9 +15,16 @@ import javax.crypto.spec.GCMParameterSpec
 class SessionStore(context: Context) {
     private val prefs = context.getSharedPreferences("admin_session", Context.MODE_PRIVATE)
     private val alias = "ahsan-admin-session"
+    /**
+     * Backend address — fixed at build time (BuildConfig.SERVER_URL, resolved
+     * from the APP_SERVER_URL environment variable / appServerUrl in
+     * gradle.properties). Deliberately NOT read from or written to prefs: a
+     * server typed in by hand can never shadow the configured value, so every
+     * install of an APK talks to exactly the backend it was built for.
+     */
     var baseUrl: String
-        get() = prefs.getString("base_url", "http://10.0.2.2:8000/")!!
-        set(value) { prefs.edit().putString("base_url", value).apply() }
+        get() = BuildConfig.SERVER_URL
+        set(@Suppress("UNUSED_PARAMETER") value: String) { /* build-time value is authoritative */ }
     var language: String
         get() = prefs.getString("language", "en")!!
         set(value) { prefs.edit().putString("language", value).apply() }

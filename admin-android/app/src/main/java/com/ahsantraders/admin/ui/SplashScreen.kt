@@ -71,7 +71,7 @@ fun SplashScreen(
         footerVisible = true
     }
 
-    // Collect navigation events triggered after session evaluation and 1200ms delay.
+    // Collect navigation events triggered after session evaluation and 2500ms delay.
     LaunchedEffect(Unit) {
         viewModel.navigationEvent.collect { target ->
             when (target) {

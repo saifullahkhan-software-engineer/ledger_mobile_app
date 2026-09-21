@@ -2,7 +2,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <application android:allowBackup="false" android:label="Ahsan Traders"
+    <application android:name=".AhsanApplication" android:allowBackup="false" android:label="Ahsan Traders"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"

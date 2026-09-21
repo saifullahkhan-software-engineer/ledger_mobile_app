@@ -13,6 +13,8 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("kotlin-kapt")
+    id("com.google.dagger.hilt.android")
 }
 // ---------------------------------------------------------------------------
 // Backend base URL — resolved ONCE at build time and baked into the APK as
@@ -223,6 +225,15 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Hilt
+    implementation("com.google.dagger:hilt-android:2.55")
+    kapt("com.google.dagger:hilt-android-compiler:2.55")
+    implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
+
+    // Coil
+    implementation("io.coil-kt:coil-compose:2.6.0")
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }

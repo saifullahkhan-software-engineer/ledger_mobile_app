@@ -12,26 +12,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.ahsantraders.admin.data.AdminRepository
 import com.ahsantraders.admin.data.SessionStore
 import com.ahsantraders.admin.ui.*
+import com.ahsantraders.app.ui.splash.SplashDestination
+import com.ahsantraders.app.ui.splash.SplashScreen
+import dagger.hilt.android.AndroidEntryPoint
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    private val repo by lazy {
-        AdminRepository(SessionStore(applicationContext), BuildConfig.DEBUG)
-    }
-
-    private val splashViewModel: SplashViewModel by viewModels {
-        object : ViewModelProvider.Factory {
-            @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                SplashViewModel(repo) as T
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         // LAYER 1 — SYSTEM SPLASH (Android 12+ requirement via androidx.core:core-splashscreen)
         // Must be called BEFORE super.onCreate()
@@ -39,25 +32,14 @@ class MainActivity : ComponentActivity() {
 
         super.onCreate(savedInstanceState)
 
-        // Hold system splash until Compose is ready to render the first frame — eliminates visible flicker
-        splashScreen.setKeepOnScreenCondition {
-            splashViewModel.isSystemSplashLoading.value
-        }
-
         // Draw edge-to-edge behind status bar with light status bar icons for readable contrast on dark green
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         )
 
-        val adminVmFactory = object : ViewModelProvider.Factory {
-            @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                AdminViewModel(repo) as T
-        }
-
         setContent {
-            val adminVm: AdminViewModel = viewModel(factory = adminVmFactory)
+            val adminVm: AdminViewModel = hiltViewModel()
             val state by adminVm.state.collectAsStateWithLifecycle()
             val navController = rememberNavController()
 
@@ -69,9 +51,12 @@ class MainActivity : ComponentActivity() {
                     // Start destination: Layer 2 Compose Splash Screen
                     composable(Route.Splash) {
                         SplashScreen(
-                            viewModel = splashViewModel,
                             onNavigate = { destination ->
-                                navController.navigate(destination) {
+                                val target = when (destination) {
+                                    SplashDestination.Login -> Route.Login
+                                    SplashDestination.Dashboard -> Route.Dashboard
+                                }
+                                navController.navigate(target) {
                                     popUpTo(Route.Splash) { inclusive = true }
                                 }
                             }

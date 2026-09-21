@@ -3,6 +3,7 @@ package com.ahsantraders.admin.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahsantraders.admin.data.*
+import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -10,6 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 import java.time.LocalDate
+import javax.inject.Inject
 
 enum class Page { HOME, BUSINESS, LEDGER, DAY, STOCK, SUPPLIERS, BILLS, EXPENSES, REPORTS, SETTINGS, BATCHES, BATCH, SETTLEMENTS, USERS, USER, ADD_USER, ICONS }
 data class UserDraft(val role: String = "ADMIN", val values: Map<String, String> = emptyMap(), val businesses: Set<String> = emptySet())
@@ -28,7 +30,9 @@ data class AdminState(
     val userSearch: String = "", val userFilter: String = "", val icons: List<AppIconItem> = emptyList(),
     val uploading: Boolean = false
 )
-class AdminViewModel(private val repo: AdminRepository) : ViewModel() {
+
+@HiltViewModel
+class AdminViewModel @Inject constructor(private val repo: AdminRepository) : ViewModel() {
     private val mutable = MutableStateFlow(AdminState(language = repo.store.language))
     val state = mutable.asStateFlow()
     val server get() = repo.store.baseUrl

@@ -11,9 +11,9 @@
 
     <!-- Android 12+ System Splash Screen Theme via androidx.core:core-splashscreen. -->
     <style name="Theme.AtTraders.Splash" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@color/brand_green</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_at_monogram</item>
-        <item name="windowSplashScreenIconBackgroundColor">@color/brand_green</item>
+        <item name="windowSplashScreenBackground">#0A3B22</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/logo_lockup</item>
+        <item name="windowSplashScreenIconBackgroundColor">#0A3B22</item>
         <item name="postSplashScreenTheme">@style/Theme.Ahsan</item>
     </style>
 

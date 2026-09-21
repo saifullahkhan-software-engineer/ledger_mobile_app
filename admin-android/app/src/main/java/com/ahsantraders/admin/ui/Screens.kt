@@ -133,6 +133,7 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
         customImageUrl = reportsIconUrl,
         builtInKeys = listOf("quick_reports", "REPORTS_ICON", "reports", "reports_icon")
     ) { vm.go(Page.REPORTS) }
+    
     Surface(color = Forest, shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Grow Together, With Trust", color = Gold, fontWeight = FontWeight.Medium)

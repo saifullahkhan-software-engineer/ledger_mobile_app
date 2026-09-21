@@ -257,8 +257,8 @@ fun DynamicSectorIcon(
     ResolvedIcon(
         liveUrl = imageUrl,
         builtInKeys = listOf("business_${type.lowercase()}"),
-        modifier = modifier,
-        shape = shape
+        modifier = modifier.clip(CircleShape),
+        shape = CircleShape
     ) {
         SectorIcon(type = type, modifier = modifier, tint = tint)
     }

@@ -5,9 +5,11 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -63,8 +65,23 @@ import kotlinx.coroutines.launch
             }
             Column(Modifier.verticalScroll(rememberScrollState()).weight(1f).padding(12.dp)) {
                 NavigationDrawerItem(label = { Text(tr("Dashboard")) }, selected = s.page == Page.HOME, icon = { Icon(Icons.Default.Home, null) }, onClick = { scope.launch { drawer.close() }; vm.go(Page.HOME) })
-                s.businesses.forEach { b -> NavigationDrawerItem(label = { Text(b.name) }, selected = s.business?.id == b.id && s.page == Page.BUSINESS,
-                    icon = { SectorIcon(b.type, tint = sectorColor(b.type), modifier = Modifier.size(24.dp)) }, onClick = { scope.launch { drawer.close() }; vm.go(Page.BUSINESS, b) }) }
+                s.businesses.forEach { b -> 
+                    val bizIconUrl = findBusinessIconUrl(vm.server, b, s.icons)
+                    NavigationDrawerItem(
+                        label = { Text(b.name) }, 
+                        selected = s.business?.id == b.id && s.page == Page.BUSINESS,
+                        icon = { 
+                            Box(modifier = Modifier.size(24.dp).clip(CircleShape).background(sectorColor(b.type)), contentAlignment = Alignment.Center) {
+                                DynamicSectorIcon(
+                                    type = b.type,
+                                    imageUrl = bizIconUrl,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }, 
+                        onClick = { scope.launch { drawer.close() }; vm.go(Page.BUSINESS, b) }) 
+                }
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 if (s.user?.role == "SUPERADMIN") {
                     NavigationDrawerItem(label = { Text(tr("Users")) }, selected = s.page in listOf(Page.USERS, Page.USER, Page.ADD_USER), icon = { Icon(Icons.Default.People, null) }, onClick = { scope.launch { drawer.close() }; vm.openUsers() })

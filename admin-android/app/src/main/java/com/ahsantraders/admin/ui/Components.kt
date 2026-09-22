@@ -225,73 +225,58 @@ fun sectorIcon(type: String): ImageVector = when (type) {
     else -> Icons.Default.Eco
 }
 
-fun sectorDrawableRes(type: String): Int = when (type) {
-    "CHICKEN" -> R.drawable.ic_sector_chicken
-    "LPG" -> R.drawable.ic_sector_lpg
-    else -> R.drawable.ic_sector_broiler
+fun sectorLogoRes(type: String): Int = when (type.uppercase()) {
+    "CHICKEN" -> R.drawable.chicken_business_logo
+    "LPG" -> R.drawable.gas_business_logo
+    "BROILER" -> R.drawable.poltary_fram_busniess_logo
+    else -> R.drawable.chicken_business_logo
 }
+
+fun sectorDrawableRes(type: String): Int = sectorLogoRes(type)
 
 @Composable
 fun SectorIcon(type: String, modifier: Modifier = Modifier, tint: Color = Color.White) {
-    Icon(
-        painter = painterResource(sectorDrawableRes(type)),
+    Image(
+        painter = painterResource(sectorLogoRes(type)),
         contentDescription = sectorName(type),
-        tint = tint,
-        modifier = modifier
+        modifier = modifier.clip(CircleShape),
+        contentScale = ContentScale.Crop
     )
 }
 
 /**
- * Business icon for cards: the uploaded icon (live from the server, or the
- * copy baked into this build from the database) is shown in a CIRCULAR
- * container; the bundled saved vector icon stays the final fallback.
+ * Business icon for cards using the uploaded business logos.
  */
 @Composable
 fun DynamicSectorIcon(
     type: String,
-    imageUrl: String?,
+    imageUrl: String? = null,
     modifier: Modifier = Modifier,
     tint: Color = Color.White,
     shape: Shape = CircleShape
 ) {
-    ResolvedIcon(
-        liveUrl = imageUrl,
-        builtInKeys = listOf("business_${type.lowercase()}"),
-        modifier = modifier.clip(CircleShape),
-        shape = CircleShape
-    ) {
-        SectorIcon(type = type, modifier = modifier, tint = tint)
-    }
+    Image(
+        painter = painterResource(sectorLogoRes(type)),
+        contentDescription = sectorName(type),
+        modifier = modifier.clip(shape),
+        contentScale = ContentScale.Crop
+    )
 }
 
 /**
- * Brand lockup for the top app bar, side bar and login header.
- *
- * Resolution order: live `app_logo` from the server → `app_logo` baked into
- * this build from the database → the saved logo asset (`logo_lockup.png`,
- * the AT badge + "AHSAN TRADERS" wordmark). Either way the brand looks
- * identical on every screen of the app.
- *
- * @param compact small size for the top app bar / side bar header.
+ * Brand logo using the uploaded circular main_logo.
  */
 @Composable
 fun Brand(compact: Boolean = false, liveUrl: String? = null) {
-    // Saved lockup aspect ratio is 360:140 (≈ 2.571:1) — keep both dimensions in
-    // sync with it so the image is never stretched.
-    val height = if (compact) 34.dp else 72.dp
-    val size = Modifier
-        .height(height)
-        .width((height.value * 2.571f).dp)
-    if (!liveUrl.isNullOrBlank()) {
-        DynamicImage(
-            src = liveUrl,
-            modifier = size,
-            contentScale = ContentScale.Fit,
-            fallback = { builtInLockup(size) }
-        )
-    } else {
-        builtInLockup(size)
-    }
+    val size = if (compact) 36.dp else 64.dp
+    Image(
+        painter = painterResource(R.drawable.main_logo),
+        contentDescription = "Ahsan Traders",
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape),
+        contentScale = ContentScale.Crop
+    )
 }
 
 /** `app_logo` baked into this build from the database, else the saved logo lockup. */

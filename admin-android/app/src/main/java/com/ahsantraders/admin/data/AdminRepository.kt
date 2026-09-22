@@ -1,7 +1,5 @@
 package com.ahsantraders.admin.data
 
-import com.ahsantraders.app.ui.splash.BusinessBrand
-import com.ahsantraders.app.ui.splash.SplashRepository
 import com.google.gson.JsonParser
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -42,18 +40,7 @@ fun apiError(error: Throwable): String = when (error) {
     else -> "Unable to complete the request. Please try again."
 }
 
-class AdminRepository(val store: SessionStore, private val allowHttp: Boolean) : SplashRepository {
-    override suspend fun readAccessToken(): String? = store.token()
-
-    override suspend fun cachedBusinesses(): List<BusinessBrand> {
-        // Implement cache read if available, or return empty
-        return emptyList()
-    }
-
-    override suspend fun refreshBusinesses() {
-        // Implement network refresh if needed
-    }
-
+class AdminRepository(val store: SessionStore, private val allowHttp: Boolean) {
     private var bearer = store.token()
     private fun client(url: String): AdminApi = Retrofit.Builder()
         .baseUrl(normalizeServer(url, allowHttp))

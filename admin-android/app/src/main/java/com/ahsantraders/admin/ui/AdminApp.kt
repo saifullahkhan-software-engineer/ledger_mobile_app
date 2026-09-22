@@ -21,9 +21,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -34,25 +34,32 @@ import com.ahsantraders.admin.R
 import com.ahsantraders.admin.data.*
 import kotlinx.coroutines.launch
 
-// Circular logo with brand name
-@Composable fun CircularBrandLogo(liveUrl: String?, modifier: Modifier = Modifier) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = modifier) {
-        Box(
+// Circular logo with brand name: circular main_logo icon and Ahsan Traders Name in front of it
+@Composable fun CircularBrandLogo(liveUrl: String? = null, modifier: Modifier = Modifier) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = modifier
+    ) {
+        Image(
+            painter = painterResource(R.drawable.main_logo),
+            contentDescription = "Ahsan Traders",
             modifier = Modifier
-                .size(40.dp)
+                .size(36.dp)
                 .clip(CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Brand(liveUrl = liveUrl, compact = true)
-        }
-        Text("Ahsan Traders", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            contentScale = ContentScale.Crop
+        )
+        Text(
+            text = "Ahsan Traders",
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            fontSize = 17.sp
+        )
     }
 }
 
 @Composable fun AdminApp(s: AdminState, vm: AdminViewModel, onLogout: (() -> Unit)? = null) {
     if (s.user == null) { LoginScreen(s, vm); return }
-    // Header icon: live app_logo → app_logo baked into this build → saved lockup.
-    val logoUrl = findActionIconUrl(vm.server, s.icons, "app_logo", "APP_LOGO", "app_icon", "LOGO")
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var chooseKind by remember { mutableStateOf<FormKind?>(null) }
@@ -64,110 +71,229 @@ import kotlinx.coroutines.launch
     BackHandler(enabled = s.page != Page.HOME || s.draft != null || drawer.isOpen || s.saving) {
         if (!s.saving) { if (drawer.isOpen) scope.launch { drawer.close() } else back() }
     }
-    // The side bar opens as a panel INSIDE the mobile screen — it never covers
-    // the full screen. A fixed, screen-relative width (capped so the rest of the
-    // app stays visible behind the scrim) keeps it a compact in-app drawer.
+    // The side bar opens as a panel inside the screen below the top app bar.
     val drawerSheetWidth = (LocalConfiguration.current.screenWidthDp * 0.72f).dp
         .coerceIn(240.dp, 300.dp)
-    
-    
-    ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = !s.saving && s.draft == null, drawerContent = {
-        ModalDrawerSheet(drawerContainerColor = Paper, modifier = Modifier.width(drawerSheetWidth)) {
-            Column(Modifier.fillMaxWidth().background(Forest).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                CircularBrandLogo(logoUrl)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Icon(Icons.Default.AccountCircle, null, tint = Color.White, modifier = Modifier.size(42.dp))
-                    Column {
-                        Text(s.user.name, color = Color.White, fontWeight = FontWeight.Bold)
-                        Text(s.user.phone, color = Color.White.copy(alpha = .75f), fontSize = 12.sp)
-                        Text(s.user.role, color = Gold, fontSize = 11.sp)
+
+    Column(Modifier.fillMaxSize()) {
+        // Top App Bar - remains visible at the top while the drawer slides out underneath it
+        TopAppBar(
+            title = {
+                if (s.page == Page.HOME && s.draft == null) CircularBrandLogo()
+                else Text(tr(s.draft?.let { formTitle(it.kind) } ?: pageTitle(s.page)), maxLines = 1, style = MaterialTheme.typography.titleMedium)
+            },
+            navigationIcon = {
+                IconButton(
+                    onClick = {
+                        if (s.page == Page.HOME && s.draft == null) {
+                            scope.launch { if (drawer.isOpen) drawer.close() else drawer.open() }
+                        } else back()
+                    },
+                    enabled = !s.saving
+                ) {
+                    Icon(
+                        if (s.page == Page.HOME && s.draft == null) Icons.Default.Menu else Icons.AutoMirrored.Filled.ArrowBack,
+                        tr("Menu")
+                    )
+                }
+            },
+            actions = {
+                if (s.draft == null) IconButton(onClick = { vm.refresh() }, enabled = !s.loading && !s.saving) {
+                    Icon(Icons.Default.Refresh, tr("Refresh"))
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = Forest,
+                titleContentColor = Color.White,
+                navigationIconContentColor = Color.White,
+                actionIconContentColor = Color.White
+            )
+        )
+
+        // Navigation drawer opens underneath the top app bar instead of overlaying the entire screen
+        ModalNavigationDrawer(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            drawerState = drawer,
+            gesturesEnabled = !s.saving && s.draft == null && s.page == Page.HOME,
+            drawerContent = {
+                ModalDrawerSheet(
+                    drawerContainerColor = Paper,
+                    modifier = Modifier
+                        .width(drawerSheetWidth)
+                        .fillMaxHeight(),
+                    windowInsets = WindowInsets(0, 0, 0, 0)
+                ) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(Forest)
+                            .padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        CircularBrandLogo()
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Icon(Icons.Default.AccountCircle, null, tint = Color.White, modifier = Modifier.size(40.dp))
+                            Column {
+                                Text(s.user.name, color = Color.White, fontWeight = FontWeight.Bold)
+                                Text(s.user.phone, color = Color.White.copy(alpha = .75f), fontSize = 12.sp)
+                                Text(s.user.role, color = Gold, fontSize = 11.sp)
+                            }
+                        }
                     }
+                    Column(Modifier.verticalScroll(rememberScrollState()).weight(1f).padding(12.dp)) {
+                        NavigationDrawerItem(
+                            label = { Text(tr("Dashboard")) },
+                            selected = s.page == Page.HOME,
+                            icon = { Icon(Icons.Default.Home, null) },
+                            onClick = { scope.launch { drawer.close() }; vm.go(Page.HOME) }
+                        )
+                        s.businesses.forEach { b ->
+                            NavigationDrawerItem(
+                                label = { Text(b.name) },
+                                selected = s.business?.id == b.id && s.page == Page.BUSINESS,
+                                icon = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(26.dp)
+                                            .clip(CircleShape)
+                                            .background(sectorColor(b.type)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Image(
+                                            painter = painterResource(sectorLogoRes(b.type)),
+                                            contentDescription = b.name,
+                                            modifier = Modifier
+                                                .size(22.dp)
+                                                .clip(CircleShape),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    }
+                                },
+                                onClick = { scope.launch { drawer.close() }; vm.go(Page.BUSINESS, b) }
+                            )
+                        }
+                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                        if (s.user?.role == "SUPERADMIN") {
+                            NavigationDrawerItem(
+                                label = { Text(tr("Users")) },
+                                selected = s.page in listOf(Page.USERS, Page.USER, Page.ADD_USER),
+                                icon = { Icon(Icons.Default.People, null) },
+                                onClick = { scope.launch { drawer.close() }; vm.openUsers() }
+                            )
+                            NavigationDrawerItem(
+                                label = { Text(tr("Screen icons")) },
+                                selected = s.page == Page.ICONS,
+                                icon = { Icon(Icons.Default.Image, null) },
+                                onClick = { scope.launch { drawer.close() }; vm.openIcons() }
+                            )
+                            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                        }
+                        NavigationDrawerItem(
+                            label = { Text(tr("Reports")) },
+                            selected = s.page == Page.REPORTS,
+                            icon = { Icon(Icons.Default.BarChart, null) },
+                            onClick = { scope.launch { drawer.close() }; vm.go(Page.REPORTS) }
+                        )
+                        NavigationDrawerItem(
+                            label = { Text(tr("Settings")) },
+                            selected = s.page == Page.SETTINGS,
+                            icon = { Icon(Icons.Default.Settings, null) },
+                            onClick = { scope.launch { drawer.close() }; vm.go(Page.SETTINGS) }
+                        )
+                        NavigationDrawerItem(
+                            label = { Text(tr("Sign out")) },
+                            selected = false,
+                            icon = { Icon(Icons.Default.Logout, null) },
+                            onClick = { scope.launch { drawer.close() }; logout = true }
+                        )
+                    }
+                    Text(
+                        "AHSAN TRADERS",
+                        modifier = Modifier.fillMaxWidth().background(Mint).padding(20.dp),
+                        color = Forest,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
-            Column(Modifier.verticalScroll(rememberScrollState()).weight(1f).padding(12.dp)) {
-                NavigationDrawerItem(label = { Text(tr("Dashboard")) }, selected = s.page == Page.HOME, icon = { Icon(Icons.Default.Home, null) }, onClick = { scope.launch { drawer.close() }; vm.go(Page.HOME) })
-                s.businesses.forEach { b -> 
-                    val bizIconUrl = findBusinessIconUrl(vm.server, b, s.icons)
-                    NavigationDrawerItem(
-                        label = { Text(b.name) }, 
-                        selected = s.business?.id == b.id && s.page == Page.BUSINESS,
-                        icon = { 
-                            Box(modifier = Modifier.size(24.dp).clip(CircleShape).background(sectorColor(b.type)), contentAlignment = Alignment.Center) {
-                                DynamicSectorIcon(
-                                    type = b.type,
-                                    imageUrl = bizIconUrl,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }, 
-                        onClick = { scope.launch { drawer.close() }; vm.go(Page.BUSINESS, b) }) 
-                }
-                HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                if (s.user?.role == "SUPERADMIN") {
-                    NavigationDrawerItem(label = { Text(tr("Users")) }, selected = s.page in listOf(Page.USERS, Page.USER, Page.ADD_USER), icon = { Icon(Icons.Default.People, null) }, onClick = { scope.launch { drawer.close() }; vm.openUsers() })
-                    NavigationDrawerItem(label = { Text(tr("Screen icons")) }, selected = s.page == Page.ICONS, icon = { Icon(Icons.Default.Image, null) }, onClick = { scope.launch { drawer.close() }; vm.openIcons() })
-                    HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                }
-                NavigationDrawerItem(label = { Text(tr("Reports")) }, selected = s.page == Page.REPORTS, icon = { Icon(Icons.Default.BarChart, null) }, onClick = { scope.launch { drawer.close() }; vm.go(Page.REPORTS) })
-                NavigationDrawerItem(label = { Text(tr("Settings")) }, selected = s.page == Page.SETTINGS, icon = { Icon(Icons.Default.Settings, null) }, onClick = { scope.launch { drawer.close() }; vm.go(Page.SETTINGS) })
-                NavigationDrawerItem(label = { Text(tr("Sign out")) }, selected = false, icon = { Icon(Icons.Default.Logout, null) }, onClick = { scope.launch { drawer.close() }; logout = true })
-            }
-            Text("AHSAN TRADERS", modifier = Modifier.fillMaxWidth().background(Mint).padding(20.dp), color = Forest, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        }
-    }) {
-        Box(Modifier.fillMaxSize()) {
-            Scaffold(containerColor = Paper, topBar = {
-                TopAppBar(title = {
-                    if (s.page == Page.HOME && s.draft == null) CircularBrandLogo(logoUrl)
-                    else Text(tr(s.draft?.let { formTitle(it.kind) } ?: pageTitle(s.page)), maxLines = 1, style = MaterialTheme.typography.titleMedium)
-                }, navigationIcon = {
-                    IconButton(onClick = { if (s.page == Page.HOME && s.draft == null) scope.launch { drawer.open() } else back() }, enabled = !s.saving) {
-                        Icon(if (s.page == Page.HOME && s.draft == null) Icons.Default.Menu else Icons.AutoMirrored.Filled.ArrowBack, tr("Back"))
+        ) {
+            Box(Modifier.fillMaxSize()) {
+                Scaffold(
+                    containerColor = Paper,
+                    bottomBar = {
+                        if (s.draft == null) NavigationBar(containerColor = Color.White) {
+                            NavigationBarItem(
+                                selected = s.page == Page.HOME,
+                                onClick = { vm.go(Page.HOME) },
+                                icon = { Icon(Icons.Default.Home, null) },
+                                label = { Text(tr("Home")) },
+                                enabled = !s.saving
+                            )
+                            NavigationBarItem(
+                                selected = s.page == Page.LEDGER || s.page == Page.DAY,
+                                onClick = { chooseKind = FormKind.SALE },
+                                icon = { Icon(Icons.Default.PointOfSale, null) },
+                                label = { Text(tr("Sales")) },
+                                enabled = !s.saving
+                            )
+                            NavigationBarItem(
+                                selected = s.page == Page.EXPENSES,
+                                onClick = { chooseKind = FormKind.EXPENSE },
+                                icon = { Icon(Icons.Default.AccountBalanceWallet, null) },
+                                label = { Text(tr("Expenses")) },
+                                enabled = !s.saving
+                            )
+                            NavigationBarItem(
+                                selected = s.page == Page.REPORTS,
+                                onClick = { vm.go(Page.REPORTS) },
+                                icon = { Icon(Icons.Default.BarChart, null) },
+                                label = { Text(tr("Reports")) },
+                                enabled = !s.saving
+                            )
+                            NavigationBarItem(
+                                selected = s.page == Page.SETTINGS,
+                                onClick = { vm.go(Page.SETTINGS) },
+                                icon = { Icon(Icons.Default.Person, null) },
+                                label = { Text(tr("Settings")) },
+                                enabled = !s.saving
+                            )
+                        }
                     }
-                }, actions = {
-                    if (s.draft == null) IconButton(onClick = { vm.refresh() }, enabled = !s.loading && !s.saving) { Icon(Icons.Default.Refresh, tr("Refresh")) }
-                }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Forest, titleContentColor = Color.White, navigationIconContentColor = Color.White, actionIconContentColor = Color.White))
-            }, bottomBar = {
-                if (s.draft == null) NavigationBar(containerColor = Color.White) {
-                    NavigationBarItem(selected = s.page == Page.HOME, onClick = { vm.go(Page.HOME) }, icon = { Icon(Icons.Default.Home, null) }, label = { Text(tr("Home")) }, enabled = !s.saving)
-                    NavigationBarItem(selected = s.page == Page.LEDGER || s.page == Page.DAY, onClick = { chooseKind = FormKind.SALE }, icon = { Icon(Icons.Default.PointOfSale, null) }, label = { Text(tr("Sales")) }, enabled = !s.saving)
-                    NavigationBarItem(selected = s.page == Page.EXPENSES, onClick = { chooseKind = FormKind.EXPENSE }, icon = { Icon(Icons.Default.AccountBalanceWallet, null) }, label = { Text(tr("Expenses")) }, enabled = !s.saving)
-                    NavigationBarItem(selected = s.page == Page.REPORTS, onClick = { vm.go(Page.REPORTS) }, icon = { Icon(Icons.Default.BarChart, null) }, label = { Text(tr("Reports")) }, enabled = !s.saving)
-                    // Profile details live in Settings — so the tab is labelled
-                    // "Settings" (not "More"); it opens the profile card + options.
-                    NavigationBarItem(selected = s.page == Page.SETTINGS, onClick = { vm.go(Page.SETTINGS) }, icon = { Icon(Icons.Default.Person, null) }, label = { Text(tr("Settings")) }, enabled = !s.saving)
-                }
-            }) { padding ->
-                Column(Modifier.padding(padding).fillMaxSize()) {
-                    if (s.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    // Keying scroll to page/context avoids retaining a long previous list's scroll position.
-                    key(s.page, s.business?.id, s.draft?.kind, s.batch?.id, s.day?.id, s.supplier?.id) {
-                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            s.error?.let { Banner(it, true, vm::dismissError); if (s.draft == null) OutlinedButton(onClick = { vm.refresh() }, enabled = !s.loading) { Text(tr("Try again")) } }
-                            s.notice?.let { Banner(it, false, vm::dismissNotice) }
-                            if (s.draft != null) FormScreen(s, vm)
-                            else when (s.page) {
-                                Page.HOME -> HomeScreen(s, vm) { chooseKind = it }
-                                Page.BUSINESS -> BusinessScreen(s, vm) { closeDay = it }
-                                Page.BATCH -> BatchScreen(s, vm) { startBatch = true }
-                                Page.REPORTS -> ReportsScreen(s, vm)
-                                Page.SETTINGS -> SettingsScreen(s, vm) { logout = true }
-                                Page.USERS -> UsersScreen(s, vm)
-                                Page.USER -> UserDetailScreen(s, vm)
-                                Page.ADD_USER -> AddUserScreen(s, vm)
-                                Page.ICONS -> IconsScreen(s, vm)
-                                else -> SecondaryScreen(s, vm) { closeDay = it }
+                ) { padding ->
+                    Column(Modifier.padding(padding).fillMaxSize()) {
+                        if (s.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        key(s.page, s.business?.id, s.draft?.kind, s.batch?.id, s.day?.id, s.supplier?.id) {
+                            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                s.error?.let { Banner(it, true, vm::dismissError); if (s.draft == null) OutlinedButton(onClick = { vm.refresh() }, enabled = !s.loading) { Text(tr("Try again")) } }
+                                s.notice?.let { Banner(it, false, vm::dismissNotice) }
+                                if (s.draft != null) FormScreen(s, vm)
+                                else when (s.page) {
+                                    Page.HOME -> HomeScreen(s, vm) { chooseKind = it }
+                                    Page.BUSINESS -> BusinessScreen(s, vm) { closeDay = it }
+                                    Page.BATCH -> BatchScreen(s, vm) { startBatch = true }
+                                    Page.REPORTS -> ReportsScreen(s, vm)
+                                    Page.SETTINGS -> SettingsScreen(s, vm) { logout = true }
+                                    Page.USERS -> UsersScreen(s, vm)
+                                    Page.USER -> UserDetailScreen(s, vm)
+                                    Page.ADD_USER -> AddUserScreen(s, vm)
+                                    Page.ICONS -> IconsScreen(s, vm)
+                                    else -> SecondaryScreen(s, vm) { closeDay = it }
+                                }
+                                Spacer(Modifier.height(8.dp))
                             }
-                            Spacer(Modifier.height(8.dp))
                         }
                     }
                 }
-            }
-            if (s.saving) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .15f)).pointerInput(Unit) {
-                awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } }
-            }, contentAlignment = Alignment.Center) {
-                Surface(shape = RoundedCornerShape(18.dp), shadowElevation = 10.dp) { Row(Modifier.padding(24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(26.dp)); Text("Waiting for server…") } }
+                if (s.saving) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .15f)).pointerInput(Unit) {
+                    awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } }
+                }, contentAlignment = Alignment.Center) {
+                    Surface(shape = RoundedCornerShape(18.dp), shadowElevation = 10.dp) {
+                        Row(Modifier.padding(24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(26.dp))
+                            Text("Waiting for server…")
+                        }
+                    }
+                }
             }
         }
     }
@@ -184,12 +310,14 @@ import kotlinx.coroutines.launch
     if (logout) ConfirmDialog("Sign out", "Sign out and revoke existing sessions? If offline, only this device can be signed out.", { logout = false }) { logout = false; vm.logout(); onLogout?.invoke() }
     if (discard) ConfirmDialog("Cancel", "Discard this form? Unsaved fields will be lost. If a previous submission timed out, check the records before creating a new transaction.", { discard = false }) { discard = false; vm.back() }
 }
+
 fun pageTitle(page: Page): String = when (page) {
     Page.HOME -> "Dashboard"; Page.BUSINESS -> "Business summary"; Page.LEDGER, Page.DAY -> "Transaction history"
     Page.STOCK -> "Stock"; Page.SUPPLIERS -> "Suppliers"; Page.BILLS -> "Supplier bills"; Page.EXPENSES -> "Expenses"
     Page.REPORTS -> "Reports"; Page.SETTINGS -> "Settings"; Page.BATCHES -> "Batches"; Page.BATCH -> "Batch history"; Page.SETTLEMENTS -> "Settlement history"
     Page.USERS -> "Users & access"; Page.USER -> "User details"; Page.ADD_USER -> "Add user"; Page.ICONS -> "Screen icons"
 }
+
 @Composable fun LoginScreen(s: AdminState, vm: AdminViewModel, onLoginSuccess: (() -> Unit)? = null) {
     var phone by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -197,12 +325,9 @@ fun pageTitle(page: Page): String = when (page) {
     val busy = s.loading || s.saving
     // Successful login populates s.user; move on to the dashboard then.
     LaunchedEffect(s.user) { if (s.user != null) onLoginSuccess?.invoke() }
-    // Load mobile icons (public endpoint, no auth required) on login screen
-    LaunchedEffect(Unit) { if (s.icons.isEmpty()) vm.loadMobileIcons() }
-    val logoUrl = findActionIconUrl(vm.server, s.icons, "app_logo", "APP_LOGO", "app_icon", "LOGO")
     Column(Modifier.fillMaxSize().background(Paper).navigationBarsPadding().verticalScroll(rememberScrollState()).imePadding()) {
         Column(Modifier.fillMaxWidth().background(Forest).statusBarsPadding().padding(horizontal = 28.dp, vertical = 40.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-            CircularBrandLogo(logoUrl)
+            CircularBrandLogo()
             Text("Your business.\nAt your fingertips.", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("CHICKEN  /  LPG  /  BROILER", color = Gold, fontSize = 11.sp, letterSpacing = 2.sp)
         }
@@ -210,12 +335,33 @@ fun pageTitle(page: Page): String = when (page) {
             SectionTitle("Sign in", "Use the administrator account created with the backend seed command.")
             s.error?.let { Banner(it, true, vm::dismissError) }
             s.notice?.let { Banner(it, false, vm::dismissNotice) }
-            // The backend address is fixed at build time (APP_SERVER_URL
-            // environment variable / appServerUrl in gradle.properties), so it
-            // is not shown or typed here — vm.server already holds it.
-            OutlinedTextField(phone, { phone = it }, label = { Text(tr("Phone number")) }, placeholder = { Text("03001234567") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), supportingText = { Text("0300… or +92300… both work") })
-            OutlinedTextField(password, { password = it }, label = { Text(tr("Password")) }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { IconButton(onClick = { visible = !visible }) { Icon(if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility, "Toggle password visibility") } })
-            Button(onClick = { vm.login(vm.server, phone, password) }, modifier = Modifier.fillMaxWidth().height(54.dp), enabled = !busy) {
+            OutlinedTextField(
+                phone,
+                { phone = it },
+                label = { Text(tr("Phone number")) },
+                placeholder = { Text("03001234567") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !busy,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                supportingText = { Text("0300… or +92300… both work") }
+            )
+            OutlinedTextField(
+                password,
+                { password = it },
+                label = { Text(tr("Password")) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !busy,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = { IconButton(onClick = { visible = !visible }) { Icon(if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility, "Toggle password visibility") } }
+            )
+            Button(
+                onClick = { vm.login(vm.server, phone, password) },
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                enabled = !busy
+            ) {
                 if (busy) CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp) else Text(tr("Sign in"))
             }
             Text("Admin access only. The backend must be running. No financial changes are queued while offline.", color = Muted, style = MaterialTheme.typography.bodySmall)

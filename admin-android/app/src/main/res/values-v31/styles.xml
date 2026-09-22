@@ -1,16 +1,14 @@
 <resources>
+    <style name="Theme.AhsanBase" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">#0A3B22</item>
+        <item name="android:navigationBarColor">#F5F8F6</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowBackground">#0A3B22</item>
+    </style>
     <style name="Theme.Ahsan" parent="Theme.AhsanBase">
         <item name="android:windowSplashScreenBackground">#0A3B22</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/logo_lockup</item>
     </style>
-
-    <!-- Android 12+ System Splash Screen Theme via androidx.core:core-splashscreen.
-         The system splash shows the SAVED logo lockup (AT badge + AHSAN TRADERS
-         wordmark) — the exact same image that opens the Compose splash — so the
-         user perceives one single branded splash, not a plain green screen. -->
-    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">#0A3B22</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/logo_lockup</item>
-        <item name="postSplashScreenTheme">@style/Theme.Ahsan</item>
-    </style>
+    <style name="Theme.App.Starting" parent="Theme.Ahsan" />
 </resources>

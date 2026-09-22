@@ -3,10 +3,11 @@
         <item name="android:fontFamily">sans-serif</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:statusBarColor">#0A3B22</item>
-        <item name="android:navigationBarColor">#F5F8F6</item>
+        <item name="android:navigationBarColor">#0A3B22</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:windowBackground">#0A3B22</item>
     </style>
     <style name="Theme.Ahsan" parent="Theme.AhsanBase" />
+    <!-- Do NOT parent Theme.SplashScreen — that library backports a second splash on API 26–30. -->
     <style name="Theme.App.Starting" parent="Theme.Ahsan" />
 </resources>

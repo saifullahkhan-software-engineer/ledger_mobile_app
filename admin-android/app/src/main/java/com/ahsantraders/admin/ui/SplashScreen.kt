@@ -122,12 +122,12 @@ fun SplashScreen(
                     verticalArrangement = Arrangement.spacedBy(if (isShortScreen) 8.dp else 12.dp)
                 ) {
                     Image(
-                        painter = painterResource(R.drawable.logo_lockup),
+                        painter = painterResource(R.drawable.main_logo_circle),
                         contentDescription = "Ahsan Traders Logo",
                         modifier = Modifier
-                            .width((LocalConfiguration.current.screenWidthDp * 0.62f).dp)
-                            .heightIn(max = if (isShortScreen) 86.dp else 116.dp),
-                        contentScale = ContentScale.Fit
+                            .size(if (isShortScreen) 168.dp else 220.dp)
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop
                     )
                     Text(
                         text = "3 Businesses  |  1 Vision",

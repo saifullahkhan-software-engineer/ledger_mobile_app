@@ -270,7 +270,7 @@ fun DynamicSectorIcon(
 fun Brand(compact: Boolean = false, liveUrl: String? = null) {
     val size = if (compact) 36.dp else 64.dp
     Image(
-        painter = painterResource(R.drawable.main_logo),
+        painter = painterResource(R.drawable.main_logo_circle),
         contentDescription = "Ahsan Traders",
         modifier = Modifier
             .size(size)

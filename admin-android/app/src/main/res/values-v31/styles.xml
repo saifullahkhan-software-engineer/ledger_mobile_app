@@ -3,12 +3,20 @@
         <item name="android:fontFamily">sans-serif</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:statusBarColor">#0A3B22</item>
-        <item name="android:navigationBarColor">#F5F8F6</item>
+        <item name="android:navigationBarColor">#0A3B22</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:windowBackground">#0A3B22</item>
     </style>
-    <style name="Theme.Ahsan" parent="Theme.AhsanBase">
+    <style name="Theme.Ahsan" parent="Theme.AhsanBase" />
+    <!--
+      Android 12+ always paints a system splash (cannot be disabled).
+      Hide the launcher icon with a transparent drawable and skip the exit animation
+      in MainActivity so the Compose branded splash is what the user actually sees.
+    -->
+    <style name="Theme.App.Starting" parent="Theme.Ahsan">
         <item name="android:windowSplashScreenBackground">#0A3B22</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_empty</item>
+        <item name="android:windowSplashScreenAnimationDuration">0</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
     </style>
-    <style name="Theme.App.Starting" parent="Theme.Ahsan" />
 </resources>

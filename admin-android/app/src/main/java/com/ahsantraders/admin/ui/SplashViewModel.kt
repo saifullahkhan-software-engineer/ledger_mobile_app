@@ -18,7 +18,7 @@ enum class SplashNavigationTarget {
 /**
  * Manages the Compose splash screen state and session evaluation.
  * - Single splash screen (Compose): first and only splash.
- * - If user is logged in (valid token): auto-navigates to Dashboard after 1 second.
+ * - If user is logged in (valid token): auto-navigates to Dashboard after the branded splash has been shown.
  * - If not logged in: waits for user interaction (tap anywhere to proceed to Login).
  */
 @HiltViewModel
@@ -46,8 +46,8 @@ class SplashViewModel @Inject constructor(
             val hasValidToken = !token.isNullOrBlank()
 
             if (hasValidToken) {
-                // Auto-navigate to Dashboard if user is logged in (after 1 second)
-                delay(1000)
+                // Keep the branded splash on screen long enough to read (not a flash).
+                delay(2800)
                 _navigationEvent.emit(SplashNavigationTarget.Dashboard)
             }
             // If not logged in: wait for user tap (no auto-navigation)

@@ -5,21 +5,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.ahsantraders.admin.data.AdminRepository
-import com.ahsantraders.admin.data.SessionStore
 import com.ahsantraders.admin.ui.*
-import com.ahsantraders.app.ui.splash.SplashDestination
-import com.ahsantraders.app.ui.splash.SplashScreen
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -43,15 +35,17 @@ class MainActivity : ComponentActivity() {
                     navController = navController,
                     startDestination = Route.Splash
                 ) {
-                    // Start destination: Layer 2 Compose Splash Screen
+                    // Compose Splash Screen (First and Only Splash)
                     composable(Route.Splash) {
+                        val splashVm: SplashViewModel = hiltViewModel()
                         SplashScreen(
-                            onNavigate = { destination ->
-                                val target = when (destination) {
-                                    SplashDestination.Login -> Route.Login
-                                    SplashDestination.Dashboard -> Route.Dashboard
+                            viewModel = splashVm,
+                            onNavigate = { target ->
+                                val dest = when (target) {
+                                    SplashNavigationTarget.Login -> Route.Login
+                                    SplashNavigationTarget.Dashboard -> Route.Dashboard
                                 }
-                                navController.navigate(target) {
+                                navController.navigate(dest) {
                                     popUpTo(Route.Splash) { inclusive = true }
                                 }
                             }

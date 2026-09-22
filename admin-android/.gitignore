@@ -5,6 +5,3 @@ local.properties
 *.jks
 *.keystore
 .idea/
-# Icons baked into the APK at build time by the fetchAppIcons task
-# (downloaded from the backend database — generated, never hand-edited).
-/app/src/main/assets/saved_icons/

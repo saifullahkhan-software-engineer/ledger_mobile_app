@@ -152,7 +152,7 @@ private fun PreviewImage(validUrl: String?, thumb: Bitmap?, fallback: @Composabl
 fun IconsScreen(s: AdminState, vm: AdminViewModel) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            "Super admin: set the image shown on the mobile app for each screen card, app logo and quick action. Uploaded images are stored in the PostgreSQL database; the server returns a short /api/v1/images/… URL and the apps load the image from that URL — so delivery still works exactly like any hosted image. On every app build, the Gradle fetchAppIcons task also bakes these saved images into the APK (assets/saved_icons) so the app can use them directly, even offline.",
+            "Super admin: set the image shown on the mobile app for each screen card, app logo and quick action. Uploaded images are stored in the PostgreSQL database; the server returns a short /api/v1/images/… URL and the apps load the image from that URL.",
             color = Muted, fontSize = 12.sp
         )
         iconSlots.forEach { slot ->

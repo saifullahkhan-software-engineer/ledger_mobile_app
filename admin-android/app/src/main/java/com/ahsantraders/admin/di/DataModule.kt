@@ -4,7 +4,6 @@ import android.content.Context
 import com.ahsantraders.admin.BuildConfig
 import com.ahsantraders.admin.data.AdminRepository
 import com.ahsantraders.admin.data.SessionStore
-import com.ahsantraders.app.ui.splash.SplashRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -25,9 +24,4 @@ object DataModule {
     @Singleton
     fun provideAdminRepository(store: SessionStore): AdminRepository =
         AdminRepository(store, BuildConfig.DEBUG)
-
-    @Provides
-    @Singleton
-    fun provideSplashRepository(repository: AdminRepository): SplashRepository =
-        repository
 }

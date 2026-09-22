@@ -42,7 +42,7 @@ import kotlinx.coroutines.launch
         modifier = modifier
     ) {
         Image(
-            painter = painterResource(R.drawable.main_logo),
+            painter = painterResource(R.drawable.main_logo_circle),
             contentDescription = "Ahsan Traders",
             modifier = Modifier
                 .size(36.dp)
@@ -127,10 +127,8 @@ import kotlinx.coroutines.launch
                         Modifier
                             .fillMaxWidth()
                             .background(Forest)
-                            .padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                            .padding(20.dp)
                     ) {
-                        CircularBrandLogo()
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Icon(Icons.Default.AccountCircle, null, tint = Color.White, modifier = Modifier.size(40.dp))
                             Column {

@@ -1,5 +1,6 @@
 package com.ahsantraders.admin
 
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -18,6 +19,13 @@ import dagger.hilt.android.AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Android 12+ always shows a system splash; strip it the instant our first frame is ready
+        // so it never sits as a second “logo only” screen before the Compose splash.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            splashScreen.setOnExitAnimationListener { splashView ->
+                splashView.remove()
+            }
+        }
 
         // Draw edge-to-edge behind status bar with light status bar icons for readable contrast on dark green
         enableEdgeToEdge(

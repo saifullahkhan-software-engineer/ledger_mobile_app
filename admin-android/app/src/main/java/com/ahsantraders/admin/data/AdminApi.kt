@@ -40,6 +40,7 @@ interface AdminApi {
     @PUT("api/v1/admin/users/{user_id}/role") suspend fun updateRole(@Path("user_id") userId: String, @Body body: Map<String, String>): UserOut
     @POST("api/v1/admin/users/{user_id}/verify-kyc") suspend fun verifyKyc(@Path("user_id") userId: String): UserOut
     @GET("api/v1/admin/icons") suspend fun icons(): List<AppIconItem>
+    @GET("api/v1/mobile/icons") suspend fun mobileIcons(): JsonObject
     @PUT("api/v1/admin/icons/{key}") suspend fun setIcon(@Path("key") key: String, @Body body: AppIconUpdateReq): AppIconItem
     @PUT("api/v1/admin/businesses/{business_id}/icon") suspend fun setBusinessIcon(@Path("business_id") id: String, @Body body: BusinessIconUpdateReq): JsonObject
     @Multipart

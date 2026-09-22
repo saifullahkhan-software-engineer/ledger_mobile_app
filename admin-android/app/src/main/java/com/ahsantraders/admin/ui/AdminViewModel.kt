@@ -48,6 +48,32 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
             repo.clearSession(); updateState { AdminState(language = it.language, error = apiError(e)) }
         } else updateState { it.copy(error = apiError(e)) }
     }
+    fun loadMobileIcons() {
+        readJob?.cancel()
+        val turn = ++generation
+        readJob = viewModelScope.launch {
+            try {
+                val response = repo.api.mobileIcons()
+                val iconsObj = response.getAsJsonObject("icons")
+                val iconsList = mutableListOf<AppIconItem>()
+                for (key in iconsObj.keySet()) {
+                    val iconData = iconsObj.getAsJsonObject(key)
+                    iconsList.add(AppIconItem(
+                        id = key, // Use key as id since mobile endpoint doesn't return id
+                        key = key,
+                        label = iconData.get("label").asString,
+                        screen = iconData.get("screen").asString,
+                        image_url = iconData.get("image_url").asString,
+                        fallback_icon = if (iconData.has("fallback")) iconData.get("fallback").asString else null
+                    ))
+                }
+                if (turn == generation) updateState { it.copy(icons = iconsList) }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                // Silently fail - icons will use fallbacks
+            }
+        }
+    }
     fun login(server: String, phone: String, password: String) {
         if (state.value.saving || state.value.loading) return
         viewModelScope.launch {

@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -77,7 +78,7 @@ fun SplashScreen(
         footerVisible = true
     }
 
-    // Collect navigation events triggered after session evaluation and 2500ms delay.
+    // Collect navigation events triggered by user tap or auto-navigate for logged-in users
     LaunchedEffect(Unit) {
         viewModel.navigationEvent.collect { target ->
             when (target) {
@@ -87,11 +88,15 @@ fun SplashScreen(
         }
     }
 
-    // Single centered canvas in deep forest green.
+    // Single centered canvas in deep forest green - clickable to navigate
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(SplashForestGreen),
+            .background(SplashForestGreen)
+            .clickable {
+                // Navigate to login when user taps the screen
+                viewModel.navigateToLogin()
+            },
         contentAlignment = Alignment.Center
     ) {
         when (uiState) {
@@ -187,6 +192,18 @@ fun SplashScreen(
                             textAlign = TextAlign.Center
                         )
                     }
+                    
+                    Spacer(modifier = Modifier.height(32.dp))
+                    
+                    // Tap to continue indicator
+                    StageIn(visible = footerVisible, delayMillis = 200) {
+                        Text(
+                            text = "Tap to continue",
+                            color = BrandWhite.copy(alpha = 0.7f),
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
             }
             is SplashUiState.Error -> {
@@ -255,6 +272,18 @@ fun SplashScreen(
                         letterSpacing = 0.5.sp,
                         textAlign = TextAlign.Center
                     )
+                    
+                    Spacer(modifier = Modifier.height(32.dp))
+                    
+                    // Tap to continue indicator
+                    StageIn(visible = footerVisible, delayMillis = 200) {
+                        Text(
+                            text = "Tap to continue",
+                            color = BrandWhite.copy(alpha = 0.7f),
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
             }
         }

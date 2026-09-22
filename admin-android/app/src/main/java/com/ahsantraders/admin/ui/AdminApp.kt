@@ -2,6 +2,7 @@
 package com.ahsantraders.admin.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -9,7 +10,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -18,17 +18,36 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ahsantraders.admin.R
 import com.ahsantraders.admin.data.*
 import kotlinx.coroutines.launch
+
+// Circular logo with brand name
+@Composable fun CircularBrandLogo(liveUrl: String?, modifier: Modifier = Modifier) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Brand(liveUrl = liveUrl, compact = true)
+        }
+        Text("Ahsan Traders", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+    }
+}
 
 @Composable fun AdminApp(s: AdminState, vm: AdminViewModel, onLogout: (() -> Unit)? = null) {
     if (s.user == null) { LoginScreen(s, vm); return }
@@ -50,10 +69,12 @@ import kotlinx.coroutines.launch
     // app stays visible behind the scrim) keeps it a compact in-app drawer.
     val drawerSheetWidth = (LocalConfiguration.current.screenWidthDp * 0.72f).dp
         .coerceIn(240.dp, 300.dp)
+    
+    
     ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = !s.saving && s.draft == null, drawerContent = {
         ModalDrawerSheet(drawerContainerColor = Paper, modifier = Modifier.width(drawerSheetWidth)) {
             Column(Modifier.fillMaxWidth().background(Forest).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                Brand(true, logoUrl)
+                CircularBrandLogo(logoUrl)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(Icons.Default.AccountCircle, null, tint = Color.White, modifier = Modifier.size(42.dp))
                     Column {
@@ -98,7 +119,7 @@ import kotlinx.coroutines.launch
         Box(Modifier.fillMaxSize()) {
             Scaffold(containerColor = Paper, topBar = {
                 TopAppBar(title = {
-                    if (s.page == Page.HOME && s.draft == null) Brand(true, logoUrl)
+                    if (s.page == Page.HOME && s.draft == null) CircularBrandLogo(logoUrl)
                     else Text(tr(s.draft?.let { formTitle(it.kind) } ?: pageTitle(s.page)), maxLines = 1, style = MaterialTheme.typography.titleMedium)
                 }, navigationIcon = {
                     IconButton(onClick = { if (s.page == Page.HOME && s.draft == null) scope.launch { drawer.open() } else back() }, enabled = !s.saving) {
@@ -176,10 +197,12 @@ fun pageTitle(page: Page): String = when (page) {
     val busy = s.loading || s.saving
     // Successful login populates s.user; move on to the dashboard then.
     LaunchedEffect(s.user) { if (s.user != null) onLoginSuccess?.invoke() }
+    // Load mobile icons (public endpoint, no auth required) on login screen
+    LaunchedEffect(Unit) { if (s.icons.isEmpty()) vm.loadMobileIcons() }
     val logoUrl = findActionIconUrl(vm.server, s.icons, "app_logo", "APP_LOGO", "app_icon", "LOGO")
     Column(Modifier.fillMaxSize().background(Paper).navigationBarsPadding().verticalScroll(rememberScrollState()).imePadding()) {
         Column(Modifier.fillMaxWidth().background(Forest).statusBarsPadding().padding(horizontal = 28.dp, vertical = 40.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-            Brand(liveUrl = logoUrl)
+            CircularBrandLogo(logoUrl)
             Text("Your business.\nAt your fingertips.", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("CHICKEN  /  LPG  /  BROILER", color = Gold, fontSize = 11.sp, letterSpacing = 2.sp)
         }

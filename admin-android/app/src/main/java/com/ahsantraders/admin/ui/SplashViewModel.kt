@@ -114,6 +114,13 @@ class SplashViewModel(private val repo: AdminRepository) : ViewModel() {
         )
     }
 
+    /** Called when user taps the splash screen to navigate to login */
+    fun navigateToLogin() {
+        viewModelScope.launch {
+            _navigationEvent.emit(SplashNavigationTarget.Login)
+        }
+    }
+
     private fun evaluateSessionAndTiming() {
         viewModelScope.launch {
             val startTime = System.currentTimeMillis()
@@ -122,23 +129,15 @@ class SplashViewModel(private val repo: AdminRepository) : ViewModel() {
             val token = repo.store.token()
             val hasValidToken = !token.isNullOrBlank()
 
-            val target = if (hasValidToken) {
-                SplashNavigationTarget.Dashboard
-            } else {
-                SplashNavigationTarget.Login
+            // If user has valid session, navigate to dashboard automatically
+            if (hasValidToken) {
+                delay(1000) // Show splash for 1 second if logged in
+                _navigationEvent.emit(SplashNavigationTarget.Dashboard)
             }
+            // If no session, wait for user tap - don't auto-navigate
 
-            // Enforce visible duration of 2500ms (2 to 3 seconds)
-            val elapsed = System.currentTimeMillis() - startTime
-            val remaining = (2500L - elapsed).coerceAtLeast(0L)
-            if (remaining > 0L) {
-                delay(remaining)
-            }
-
-            // Ready to transition
             _isLoading.value = false
             _isSystemSplashLoading.value = false
-            _navigationEvent.emit(target)
         }
     }
 }

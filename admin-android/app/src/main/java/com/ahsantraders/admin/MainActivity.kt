@@ -7,7 +7,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -26,10 +25,6 @@ import dagger.hilt.android.AndroidEntryPoint
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        // LAYER 1 — SYSTEM SPLASH (Android 12+ requirement via androidx.core:core-splashscreen)
-        // Must be called BEFORE super.onCreate()
-        val splashScreen = installSplashScreen()
-
         super.onCreate(savedInstanceState)
 
         // Draw edge-to-edge behind status bar with light status bar icons for readable contrast on dark green

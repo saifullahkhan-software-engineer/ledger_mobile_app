@@ -39,14 +39,14 @@ class ValidationTest {
         assertThrows(IllegalArgumentException::class.java) { quantityInput("-1") }
     }
     @Test fun saleMatchesApiContractAndPreservesUnicode() {
-        val result = formBody(Draft(FormKind.SALE, mapOf("date" to date, "quantity" to "2.5", "amount" to "1500.25", "note" to "  احسن sale  ")), chicken, null, date)
+        val result = formBody(Draft(FormKind.SALE, mapOf("date" to date, "quantity" to "2.5", "price" to "600.10", "note" to "  احسن sale  ")), chicken, null, date)
         assertEquals(150025L, result["amount"].asLong)
         assertEquals("2.5", result["quantity"].asString)
         assertEquals("  احسن sale  ", result["note"].asString)
         assertEquals("SALE", result["kind"].asString)
     }
     @Test fun lpgSaleRequiresChannel() {
-        val draft = Draft(FormKind.SALE, mapOf("date" to date, "quantity" to "2", "amount" to "300"))
+        val draft = Draft(FormKind.SALE, mapOf("date" to date, "quantity" to "2", "price" to "150"))
         assertThrows(IllegalArgumentException::class.java) { formBody(draft, lpg, null, date) }
         assertEquals("RETAIL", formBody(draft.copy(values = draft.values + ("channel" to "RETAIL")), lpg, null, date)["channel"].asString)
     }

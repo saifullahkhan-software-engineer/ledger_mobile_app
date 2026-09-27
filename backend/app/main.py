@@ -1,6 +1,8 @@
+import asyncio
 import base64
 import os
-from datetime import date, timedelta
+import time
+from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated
 
@@ -10,6 +12,7 @@ from starlette.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
+from . import db as database
 from .db import get_db
 from .images import (
     MAX_IMAGE_BYTES,
@@ -53,6 +56,7 @@ from .schemas import (
     Deposit,
     Harvest,
     Login,
+    OperationUpdate,
     Profile,
     Register,
     ResolveWithdrawal,
@@ -78,6 +82,7 @@ from .services import (
     business_ids,
     buy,
     data,
+    edit_operation,
     fail,
     get,
     journal,
@@ -121,6 +126,30 @@ def index():
 async def health(db: DB):
     await db.execute(text("SELECT 1"))
     return {"status": "ok", "environment": MODE, "mock_payments": MOCK}
+
+
+@app.get("/health/db", tags=["System"])
+async def db_health():
+    started = time.perf_counter()
+    try:
+        async with database.engine.connect() as connection:
+            await asyncio.wait_for(connection.execute(text("SELECT 1")), timeout=5)
+        status, code, error = "ok", 200, None
+    except Exception as exc:
+        status, code, error = "error", 503, type(exc).__name__
+    payload = {
+        "status": status,
+        "database": database.engine.dialect.name,
+        "latency_ms": round((time.perf_counter() - started) * 1000, 2),
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if error:
+        payload["error"] = error
+    return JSONResponse(
+        status_code=code,
+        content=payload,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/api/v1/auth/register", tags=["Authentication"], status_code=201)
@@ -563,6 +592,7 @@ async def stock(business_id: str, db: DB, u=Depends(admin)):
         else "cylinders"
         if b.type == "LPG"
         else "birds",
+        "count": b.stock_count,
         "inventory_cost": b.stock_cost,
         "live_birds": sum(x.chicks - x.deaths for x in batches),
     }
@@ -610,6 +640,24 @@ async def operations(day_id: str, db: DB, u=Depends(admin)):
         data(r)
         for r in result.scalars()
     ]
+
+
+@app.get("/api/v1/admin/operations/{operation_id}", tags=["Operations"])
+async def operation_detail(operation_id: str, db: DB, u=Depends(admin)):
+    op = await get(db, Operation, operation_id)
+    d = await get(db, Day, op.day_id)
+    b = await allowed(db, u, d.business_id)
+    return {"operation": data(op), "day": data(d), "business": data(b)}
+
+
+@app.patch("/api/v1/admin/operations/{operation_id}", tags=["Operations"])
+async def update_operation(
+    operation_id: str, p: OperationUpdate, db: DB, key: Key, u=Depends(root)
+):
+    async def action():
+        return await edit_operation(db, u, operation_id, p)
+
+    return await once(db, u, f"op-edit:{operation_id}", key, p.model_dump(), action)
 
 
 @app.post("/api/v1/admin/ledger/close", tags=["Settlement"])
@@ -1083,6 +1131,8 @@ async def business_summary(
         "day": data(day) if day else None,
         "purchased_quantity": sum(r.quantity for r in ops if r.kind == "PURCHASE"),
         "sold_quantity": sum(r.quantity for r in ops if r.kind == "SALE"),
+        "purchased_count": sum(r.count or 0 for r in ops if r.kind == "PURCHASE"),
+        "sold_count": sum(r.count or 0 for r in ops if r.kind == "SALE"),
         "byproduct_quantity": sum(r.quantity for r in ops if r.kind == "BYPRODUCT"),
         "byproduct_revenue": sum(r.amount for r in ops if r.kind == "BYPRODUCT"),
         "retail_sold": sum(

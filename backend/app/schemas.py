@@ -61,10 +61,20 @@ class DailyInput(Input):
     date: date
     kind: Literal["PURCHASE", "SALE", "BYPRODUCT", "EXPENSE"]
     quantity: Quantity = Decimal(0)
+    count: Count | None = None
     amount: PositiveMoney
+    category: Annotated[str, Field(max_length=50)] | None = None
     channel: Literal["RETAIL", "COMMERCIAL"] | None = None
     note: Note = ""
     supplier_id: str | None = None
+
+
+class OperationUpdate(Input):
+    quantity: Quantity | None = None
+    count: Count | None = None
+    amount: PositiveMoney | None = None
+    category: Annotated[str, Field(max_length=50)] | None = None
+    note: Note | None = None
 
 
 class CloseDay(Input):

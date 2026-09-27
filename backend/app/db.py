@@ -14,10 +14,43 @@ def ensure_business_icon_column_on_connection(conn):
         conn.execute(text(f"ALTER TABLE businesses ADD COLUMN {clause}icon_url VARCHAR(500)"))
 
 
+def ensure_column_on_connection(conn, table, column, ddl):
+    """Add one missing column to an existing table; repeatable and additive."""
+    if not inspect(conn).has_table(table):
+        return
+    if any(c["name"] == column for c in inspect(conn).get_columns(table)):
+        return
+    clause = "IF NOT EXISTS " if conn.dialect.name == "postgresql" else ""
+    try:
+        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {clause}{ddl}"))
+    except Exception as exc:
+        if "duplicate column" not in str(exc).lower() and "already exists" not in str(exc).lower():
+            raise
+
+
+def ensure_additive_columns_on_connection(conn):
+    """Self-heal legacy databases: icon column, bird count, expense category,
+    and counted stock. Safe to run on every connection; never touches data."""
+    if not inspect(conn).has_table("businesses"):
+        return
+    ensure_business_icon_column_on_connection(conn)
+    ensure_column_on_connection(conn, "operations", "count", "count INTEGER")
+    ensure_column_on_connection(conn, "operations", "category", "category VARCHAR(50)")
+    ensure_column_on_connection(
+        conn, "businesses", "stock_count", "stock_count INTEGER NOT NULL DEFAULT 0"
+    )
+
+
 async def ensure_business_icon_column():
     """Backfill legacy Postgres/SQLite databases that predate the business icon column."""
     async with engine.begin() as conn:
         await conn.run_sync(ensure_business_icon_column_on_connection)
+
+
+async def ensure_additive_columns():
+    """Backfill legacy databases that predate bird counts / expense categories."""
+    async with engine.begin() as conn:
+        await conn.run_sync(ensure_additive_columns_on_connection)
 
 
 load_dotenv()
@@ -78,7 +111,7 @@ class Base(DeclarativeBase):
 async def get_db():
     from .models import WriteLock
 
-    await ensure_business_icon_column()
+    await ensure_additive_columns()
 
     async with AsyncSessionLocal() as db:
         async with db.begin():

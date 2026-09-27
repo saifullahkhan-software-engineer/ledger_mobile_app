@@ -18,6 +18,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ahsantraders.admin.data.*
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.LocalDate
 import kotlin.math.abs
 
@@ -172,6 +174,8 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
                 DataRow("Revenue", rupees(summary.day?.revenue ?: 0))
                 DataRow("Purchased", "${summary.purchased_quantity} ${if (b.type == "LPG") "cylinders" else "kg"}")
                 DataRow("Sold", "${summary.sold_quantity} ${if (b.type == "LPG") "cylinders" else "kg"}")
+                if (b.type == "CHICKEN" && summary.purchased_count > 0) DataRow("Purchased (birds)", summary.purchased_count.toString())
+                if (b.type == "CHICKEN" && summary.sold_count > 0) DataRow("Sold (birds)", summary.sold_count.toString())
                 if (b.type == "CHICKEN") DataRow("Pota-Kaliji sale", rupees(summary.byproduct_revenue))
                 else { DataRow("Retail sales", summary.retail_sold); DataRow("Commercial sales", summary.commercial_sold) }
                 DataRow("Operating expenses", rupees(summary.day?.expenses ?: 0))
@@ -260,13 +264,25 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
     if (s.logs.isEmpty() && !s.loading) Empty()
     s.logs.forEach { log -> Panel { Text(log.date, fontWeight = FontWeight.Bold); DataRow("Feed consumed", "${log.feed_kg} kg"); DataRow("Mortality", log.deaths.toString()); DataRow("Expenses", rupees(log.expense)); if (log.note.isNotEmpty()) Text(log.note) } }
 }
-@Composable fun OperationCard(row: Operation) {
-    Panel {
-        Row(verticalAlignment = Alignment.CenterVertically) { Text(row.kind.replace('_', ' '), color = Green, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)); Text(rupees(row.amount), fontWeight = FontWeight.Bold) }
-        if (row.kind != "EXPENSE") DataRow("Quantity", row.quantity)
-        row.channel?.let { DataRow("Sale channel", tr(it.lowercase().replaceFirstChar { c -> c.uppercase() })) }
-        if (row.note.isNotEmpty()) Text(row.note, style = MaterialTheme.typography.bodyMedium)
-        Text(row.created_at, fontSize = 11.sp, color = Muted)
+fun row_price_per_unit(op: Operation): String? {
+    if (op.kind == "EXPENSE") return null
+    val qty = op.quantity.toBigDecimalOrNull() ?: return null
+    if (qty.signum() <= 0) return null
+    return try { rupees(BigDecimal.valueOf(op.amount).divide(qty, 0, RoundingMode.HALF_UP).longValueExact()) }
+    catch (_: ArithmeticException) { null }
+}
+
+@Composable fun OperationCard(row: Operation, onClick: () -> Unit = {}) {
+    Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) { Text(row.kind.replace('_', ' '), color = Green, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)); Text(rupees(row.amount), fontWeight = FontWeight.Bold) }
+            if (row.kind != "EXPENSE") DataRow("Weight", row.quantity)
+            row.count?.takeIf { it > 0 }?.let { DataRow("Quantity (birds)", it.toString()) }
+            row.category?.takeIf { it.isNotBlank() }?.let { DataRow("Category", it) }
+            row.channel?.let { DataRow("Sale channel", tr(it.lowercase().replaceFirstChar { c -> c.uppercase() })) }
+            if (row.note.isNotEmpty()) Text(row.note, style = MaterialTheme.typography.bodyMedium)
+            Text(row.created_at, fontSize = 11.sp, color = Muted)
+        }
     }
 }
 @Composable fun DateFilters(s: AdminState, vm: AdminViewModel, businessFilter: Boolean = false) {
@@ -366,6 +382,7 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
     when (s.page) {
         Page.STOCK -> s.stock?.let { stock ->
             Panel { Icon(Icons.Default.Inventory2, null, tint = Green, modifier = Modifier.size(38.dp)); DataRow(if (stock.unit == "birds") "Live birds" else "Remaining stock", if (stock.unit == "birds") stock.live_birds.toString() else "${stock.quantity} ${stock.unit}")
+                if (stock.unit == "kg" && stock.count > 0) DataRow("Quantity (birds)", stock.count.toString())
                 if (stock.unit != "birds") DataRow("Inventory value", rupees(stock.inventory_cost)) }
             Text("Stock changes when you record operations. Negative stock is not allowed.", color = Muted, fontSize = 12.sp)
         }
@@ -383,7 +400,31 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
                 if (day.status == "OPEN") Button(onClick = { confirmClose(day) }, enabled = !s.saving, modifier = Modifier.fillMaxWidth()) { Text(tr("Close day")) }
             }
             if (s.operations.isEmpty() && !s.loading) Empty()
-            s.operations.forEach { OperationCard(it) }
+            s.operations.forEach { OperationCard(it) { vm.openOperation(it, s.page) } }
+        }
+        Page.OPERATION -> s.operationDetail?.let { od ->
+            val op = od.operation
+            Panel {
+                Row(verticalAlignment = Alignment.CenterVertically) { Text(op.kind.replace('_', ' '), color = Green, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)); Status(od.day.status) }
+                DataRow("Date", od.day.date)
+                DataRow("Business", od.business.name)
+                if (op.kind != "EXPENSE") DataRow("Weight", op.quantity)
+                op.count?.takeIf { it > 0 }?.let { DataRow("Quantity (birds)", it.toString()) }
+                row_price_per_unit(op)?.let { DataRow("Price per unit", it) }
+                DataRow("Total amount", rupees(op.amount))
+                if (op.kind == "SALE") DataRow("Cost of sales", rupees(op.cost))
+                if (op.kind == "SALE") DataRow("Profit contribution", rupees(op.amount - op.cost), Green)
+                op.category?.takeIf { it.isNotBlank() }?.let { DataRow("Category", it) }
+                op.channel?.let { DataRow("Sale channel", tr(it.lowercase().replaceFirstChar { c -> c.uppercase() })) }
+                if (op.note.isNotEmpty()) Text(op.note, style = MaterialTheme.typography.bodyMedium)
+                Text("Recorded ${op.created_at}", fontSize = 11.sp, color = Muted)
+            }
+            Text("Profit is calculated on the total price above, not on the weight or bird count.", color = Muted, fontSize = 12.sp)
+            if (s.user?.role == "SUPERADMIN" && od.day.status == "OPEN") {
+                Button(onClick = { vm.openEditOperation() }, enabled = !s.saving, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Edit, null); Spacer(Modifier.width(8.dp)); Text(tr("Edit transaction")) }
+            } else {
+                Text("Only the super admin can correct a transaction, and only while its day is still open.", color = Muted, fontSize = 12.sp)
+            }
         }
         Page.SUPPLIERS -> {
             Button(onClick = { vm.openForm(FormKind.SUPPLIER) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Add, null); Text(tr("Add supplier")) }
@@ -394,7 +435,7 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
             if (s.page == Page.EXPENSES) DateFilters(s, vm)
             else Text("Purchase records, not outstanding payable balances.", color = Muted, fontSize = 12.sp)
             if (s.operations.isEmpty() && !s.loading) Empty()
-            s.operations.forEach { OperationCard(it) }; MoreButton(s, vm)
+            s.operations.forEach { OperationCard(it) { vm.openOperation(it, s.page) } }; MoreButton(s, vm)
         }
         Page.BATCHES -> {
             Button(onClick = { vm.openForm(FormKind.BATCH_CREATE) }, modifier = Modifier.fillMaxWidth()) { Text(tr("Create batch")) }

@@ -17,6 +17,7 @@ fun formTitle(kind: FormKind): String = when (kind) {
     FormKind.SALE -> "Add sale"; FormKind.PURCHASE -> "Add purchase"; FormKind.EXPENSE -> "Add expense"
     FormKind.BYPRODUCT -> "Pota-Kaliji sale"; FormKind.BATCH_CREATE -> "Create batch"; FormKind.BATCH_LOG -> "Add daily record"
     FormKind.HARVEST -> "Harvest batch"; FormKind.SUPPLIER -> "Add supplier"; FormKind.PROFILE -> "Edit profile"; FormKind.PASSWORD -> "Change password"
+    FormKind.EDIT_OPERATION -> "Correct transaction"
 }
 @Composable fun FormScreen(s: AdminState, vm: AdminViewModel) {
     val draft = s.draft ?: return
@@ -32,13 +33,50 @@ fun formTitle(kind: FormKind): String = when (kind) {
             trailingIcon = if (secret) { { IconButton(onClick = { visible = !visible }) { Icon(if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility, if (visible) "Hide password" else "Show password") } } } else null)
     }
     when (draft.kind) {
-        FormKind.SALE, FormKind.PURCHASE, FormKind.EXPENSE, FormKind.BYPRODUCT -> {
+        FormKind.SALE, FormKind.PURCHASE -> {
+            val lpg = s.business?.type == "LPG"
+            val chicken = s.business?.type == "CHICKEN"
             input("date", "Date", hint = "YYYY-MM-DD · ${businessDate()} in Pakistan")
-            if (draft.kind != FormKind.EXPENSE) input("quantity", if (s.business?.type == "LPG") "Cylinders" else "Quantity (kg)", KeyboardType.Decimal)
-            input("amount", "Amount (Rs.)", KeyboardType.Decimal, hint = "Enter rupees, e.g. 1250.50 — not paisa")
-            if (draft.kind == FormKind.SALE && s.business?.type == "LPG") Selection("Sale channel", draft.values["channel"].orEmpty(), listOf("RETAIL" to "Retail", "COMMERCIAL" to "Commercial"), !s.saving, translateChoices = true) { vm.field("channel", it) }
+            input("quantity", if (lpg) "Cylinders" else "Weight (kg)", KeyboardType.Decimal)
+            if (chicken) input("count", "Quantity (birds)", KeyboardType.Number, hint = "Optional — number of birds, e.g. 3 or 4")
+            input("price", if (lpg) "Price (per cylinder)" else "Price (per KG)", KeyboardType.Decimal)
+            val total = runCatching { totalInput(draft.values["quantity"].orEmpty(), draft.values["price"].orEmpty(), lpg) }.getOrNull()
+            total?.let { Panel { DataRow("Total Amount", rupees(it)); Text("Weight × price. Profit is calculated on this total price.", color = Muted, style = MaterialTheme.typography.bodySmall) } }
+            if (draft.kind == FormKind.SALE && lpg) Selection("Sale channel", draft.values["channel"].orEmpty(), listOf("RETAIL" to "Retail", "COMMERCIAL" to "Commercial"), !s.saving, translateChoices = true) { vm.field("channel", it) }
             if (draft.kind == FormKind.PURCHASE) Selection("Supplier (optional)", draft.values["supplier_id"].orEmpty(), listOf("" to "None") + s.suppliers.map { it.id to it.name }, !s.saving) { vm.field("supplier_id", it) }
             input("note", "Note", multiline = true)
+        }
+        FormKind.EXPENSE, FormKind.BYPRODUCT -> {
+            input("date", "Date", hint = "YYYY-MM-DD · ${businessDate()} in Pakistan")
+            if (draft.kind == FormKind.BYPRODUCT) input("quantity", "Quantity (kg)", KeyboardType.Decimal)
+            if (draft.kind == FormKind.EXPENSE) {
+                val current = draft.values["category"].orEmpty()
+                val choices = listOf("" to "None") + (if (current.isNotBlank() && current !in EXPENSE_CATEGORIES) listOf(current) else emptyList()).plus(EXPENSE_CATEGORIES).map { it to it }
+                Selection("Category", current, choices, !s.saving) { vm.field("category", it) }
+            }
+            input("amount", "Amount (Rs.)", KeyboardType.Decimal, hint = "Enter rupees, e.g. 1250.50 — not paisa")
+            input("note", if (draft.kind == FormKind.EXPENSE) "Description" else "Note", multiline = true)
+        }
+        FormKind.EDIT_OPERATION -> {
+            val kind = draft.values["kind"].orEmpty()
+            val lpg = draft.values["lpg"] == "1"
+            Text("Correcting a ${kind.lowercase()} from ${draft.values["date"].orEmpty()}. The date cannot change.", color = Muted, style = MaterialTheme.typography.bodyMedium)
+            if (kind != "EXPENSE") input("quantity", if (lpg) "Cylinders" else "Weight (kg)", KeyboardType.Decimal)
+            if (kind == "PURCHASE" || kind == "SALE") {
+                if (!lpg) input("count", "Quantity (birds)", KeyboardType.Number, hint = "Optional — number of birds, e.g. 3 or 4")
+                input("price", if (lpg) "Price (per cylinder)" else "Price (per KG)", KeyboardType.Decimal)
+                val total = runCatching { totalInput(draft.values["quantity"].orEmpty(), draft.values["price"].orEmpty(), lpg) }.getOrNull()
+                total?.let { Panel { DataRow("Total Amount", rupees(it)) } }
+            } else {
+                input("amount", "Amount (Rs.)", KeyboardType.Decimal, hint = "Enter rupees, e.g. 1250.50 — not paisa")
+            }
+            if (kind == "EXPENSE") {
+                val current = draft.values["category"].orEmpty()
+                val choices = listOf("" to "None") + (if (current.isNotBlank() && current !in EXPENSE_CATEGORIES) listOf(current) else emptyList()).plus(EXPENSE_CATEGORIES).map { it to it }
+                Selection("Category", current, choices, !s.saving) { vm.field("category", it) }
+            }
+            input("note", if (kind == "EXPENSE") "Description" else "Note", multiline = true)
+            Text("Owner-only correction: only the super admin can update a single transaction, and only while its day is still open.", color = Muted, style = MaterialTheme.typography.bodySmall)
         }
         FormKind.SUPPLIER -> {
             input("name", "Supplier name"); input("phone", "Phone number", KeyboardType.Phone, hint = "Optional · +923001234567")
@@ -70,7 +108,7 @@ fun formTitle(kind: FormKind): String = when (kind) {
         FormKind.PASSWORD -> { input("old_password", "Current password", secret = true); input("new_password", "New password", secret = true, hint = "10–128 characters"); input("confirm", "Confirm password", secret = true) }
     }
     Button(onClick = { if (draft.kind == FormKind.HARVEST) harvestConfirm = true else vm.submit() }, enabled = !s.saving, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-        Icon(Icons.Default.Check, null); Spacer(Modifier.width(8.dp)); Text(tr(if (draft.kind == FormKind.PROFILE || draft.kind == FormKind.PASSWORD) "Save changes" else "Save record"))
+        Icon(Icons.Default.Check, null); Spacer(Modifier.width(8.dp)); Text(tr(when (draft.kind) { FormKind.PROFILE, FormKind.PASSWORD -> "Save changes"; FormKind.EDIT_OPERATION -> "Save correction"; else -> "Save record" }))
     }
     TextButton(onClick = vm::back, enabled = !s.saving, modifier = Modifier.fillMaxWidth()) { Text(tr("Cancel")) }
     if (harvestConfirm) ConfirmDialog("Harvest batch", "This closes ${s.batch?.name.orEmpty()} and immediately settles investors. Check the yield, price and additional expenses before confirming.", { harvestConfirm = false }) { harvestConfirm = false; vm.submit() }

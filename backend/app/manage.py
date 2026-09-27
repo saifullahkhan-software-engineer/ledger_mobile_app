@@ -27,7 +27,7 @@ from .db import (
     Session,
     engine,
     sync_engine,
-    ensure_business_icon_column_on_connection,
+    ensure_additive_columns_on_connection,
 )
 from .images import (
     UPLOAD_DIR,
@@ -85,7 +85,7 @@ async def _apply_upgrade() -> None:
             raise RuntimeError(
                 "Database is not initialized. Run python -m app.manage init-db first."
             )
-        await conn.run_sync(ensure_business_icon_column_on_connection)
+        await conn.run_sync(ensure_additive_columns_on_connection)
         await conn.run_sync(ensure_image_asset_schema_on_connection)
 
 
@@ -262,6 +262,9 @@ if __name__ == "__main__":
         "command", choices=["init-db", "upgrade-db", "migrate-images", "seed"]
     )
     args = parser.parse_args()
+    if args.command != "init-db":
+        with sync_engine.begin() as conn:
+            ensure_additive_columns_on_connection(conn)
     commands = {
         "init-db": init,
         "upgrade-db": upgrade,

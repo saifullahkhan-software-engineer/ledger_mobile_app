@@ -20,6 +20,7 @@ from .models import (
     Posting,
     Settlement,
     Supplier,
+    uid,
 )
 
 
@@ -189,13 +190,23 @@ async def operation(db, user, p):
         fail("LPG sales require RETAIL or COMMERCIAL channel", 422)
     if p.kind == "EXPENSE" and p.quantity:
         fail("Expenses cannot change stock", 422)
+    if p.count is not None:
+        if b.type != "CHICKEN":
+            fail("Bird count is only supported for chicken businesses", 422)
+        if p.kind not in ("PURCHASE", "SALE"):
+            fail("Bird count is only supported for purchases and sales", 422)
+    if p.category is not None and p.kind != "EXPENSE":
+        fail("Category is only supported for expenses", 422)
     cost = 0
     if p.kind == "PURCHASE":
         b.stock += p.quantity
         b.stock_cost += p.amount
+        b.stock_count += p.count or 0
     elif p.kind == "SALE":
         if p.quantity > b.stock:
             fail("Insufficient stock")
+        if (p.count or 0) > b.stock_count:
+            fail("Insufficient bird count in stock", 422)
         cost = (
             b.stock_cost
             if p.quantity == b.stock
@@ -207,6 +218,7 @@ async def operation(db, user, p):
         )
         b.stock -= p.quantity
         b.stock_cost -= cost
+        b.stock_count -= p.count or 0
         day.cost += cost
         day.revenue += p.amount
     elif p.kind == "BYPRODUCT":
@@ -226,6 +238,87 @@ async def operation(db, user, p):
         {f"business:{b.id}": cash, "external:operations": -cash},
     )
     return {"operation": data(row), "day": data(day), "stock": data(b)}
+
+
+def _apply_operation_effect(b, day, kind, quantity, amount, cost, count, sign):
+    # sign=-1 reverses a recorded effect, sign=+1 applies it. Money always
+    # moves as the recorded total price; weight/count only move stock.
+    if kind == "PURCHASE":
+        b.stock += sign * quantity
+        b.stock_cost += sign * amount
+        b.stock_count += sign * (count or 0)
+    elif kind == "SALE":
+        b.stock -= sign * quantity
+        b.stock_cost -= sign * cost
+        b.stock_count -= sign * (count or 0)
+        day.cost += sign * cost
+        day.revenue += sign * amount
+    elif kind == "BYPRODUCT":
+        day.revenue += sign * amount
+    else:
+        day.expenses += sign * amount
+
+
+async def edit_operation(db, user, operation_id, p):
+    op = await get(db, Operation, operation_id)
+    day = await get(db, Day, op.day_id)
+    b = await get(db, Business, day.business_id)
+    if day.status != "OPEN":
+        fail("Only operations of an open day can be corrected")
+    provided = p.model_fields_set
+    quantity = p.quantity if "quantity" in provided else op.quantity
+    count = p.count if "count" in provided else op.count
+    amount = p.amount if "amount" in provided else op.amount
+    category = p.category if "category" in provided else op.category
+    note = p.note if "note" in provided else op.note
+    kind = op.kind
+    if kind in ("PURCHASE", "SALE") and quantity <= 0:
+        fail("Positive quantity required", 422)
+    if b.type == "LPG" and quantity != quantity.to_integral_value():
+        fail("Cylinder quantity must be an integer", 422)
+    if kind == "EXPENSE" and quantity:
+        fail("Expenses cannot change stock", 422)
+    if count is not None and (b.type != "CHICKEN" or kind not in ("PURCHASE", "SALE")):
+        fail("Bird count is only supported for chicken purchases and sales", 422)
+    if category is not None and kind != "EXPENSE":
+        fail("Category is only supported for expenses", 422)
+    _apply_operation_effect(b, day, kind, op.quantity, op.amount, op.cost, op.count, -1)
+    new_cost = 0
+    if kind == "SALE":
+        if quantity > b.stock:
+            fail("Insufficient stock", 422)
+        if (count or 0) > b.stock_count:
+            fail("Insufficient bird count in stock", 422)
+        new_cost = (
+            b.stock_cost
+            if quantity == b.stock
+            else int(
+                (Decimal(b.stock_cost) * quantity / b.stock).quantize(
+                    Decimal(1), rounding=ROUND_HALF_UP
+                )
+            )
+        )
+    _apply_operation_effect(b, day, kind, quantity, amount, new_cost, count, +1)
+    if b.stock < 0 or b.stock_cost < 0 or b.stock_count < 0:
+        fail("Correction would make stock negative", 422)
+    old_cash = op.amount if kind in ("SALE", "BYPRODUCT") else -op.amount
+    new_cash = amount if kind in ("SALE", "BYPRODUCT") else -amount
+    delta = new_cash - old_cash
+    if delta:
+        await journal(
+            db,
+            f"operation-adjust:{op.id}:{uid()}",
+            kind,
+            {f"business:{b.id}": delta, "external:operations": -delta},
+        )
+    op.quantity = quantity
+    op.count = count
+    op.amount = amount
+    op.cost = new_cost
+    op.category = category
+    op.note = note
+    await db.flush()
+    return {"operation": data(op), "day": data(day), "stock": data(b)}
 
 
 async def buy(db, user, p):

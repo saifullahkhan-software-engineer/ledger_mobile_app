@@ -13,7 +13,7 @@ import retrofit2.HttpException
 import java.time.LocalDate
 import javax.inject.Inject
 
-enum class Page { HOME, BUSINESS, LEDGER, DAY, STOCK, SUPPLIERS, BILLS, EXPENSES, REPORTS, SETTINGS, BATCHES, BATCH, SETTLEMENTS, USERS, USER, ADD_USER, ICONS }
+enum class Page { HOME, BUSINESS, LEDGER, DAY, OPERATION, STOCK, SUPPLIERS, BILLS, EXPENSES, REPORTS, SETTINGS, BATCHES, BATCH, SETTLEMENTS, USERS, USER, ADD_USER, ICONS }
 data class UserDraft(val role: String = "ADMIN", val values: Map<String, String> = emptyMap(), val businesses: Set<String> = emptySet())
 data class AdminState(
     val user: Profile? = null, val loading: Boolean = false, val saving: Boolean = false,
@@ -21,6 +21,7 @@ data class AdminState(
     val businesses: List<Business> = emptyList(), val business: Business? = null,
     val dashboard: Report? = null, val report: Report? = null, val summary: Summary? = null,
     val stock: Stock? = null, val days: List<Day> = emptyList(), val day: Day? = null,
+    val operationId: String? = null, val operationDetail: OperationDetail? = null, val operationReturn: Page = Page.LEDGER,
     val suppliers: List<Supplier> = emptyList(), val supplier: Supplier? = null,
     val operations: List<Operation> = emptyList(), val batches: List<Batch> = emptyList(),
     val batch: Batch? = null, val logs: List<BatchLog> = emptyList(), val settlements: List<Settlement> = emptyList(),
@@ -137,6 +138,7 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
                 updateState { it.copy(days = (if (append) s.days else emptyList()) + rows, more = rows.size == 50) }
             }
             Page.DAY -> { val day = api.day(requireNotNull(s.day).id); val result = api.operations(day.id); updateState { it.copy(day = day, operations = result) } }
+            Page.OPERATION -> { val detail = api.operation(requireNotNull(s.operationId)); updateState { it.copy(operationDetail = detail) } }
             Page.SUPPLIERS -> { val result = api.suppliers(id); updateState { it.copy(suppliers = result) } }
             Page.BILLS -> {
                 val rows = api.bills(requireNotNull(s.supplier).id, if (append) s.operations.size else 0)
@@ -180,14 +182,42 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
         readJob?.cancel()
         updateState { it.copy(page = page, business = business, draft = null, error = null, summary = null, stock = null,
             operations = emptyList(), logs = emptyList(), days = emptyList(), suppliers = emptyList(), batches = emptyList(), settlements = emptyList(), report = null, more = false,
-            users = emptyList(), userDetail = null, userDraft = null) }
+            users = emptyList(), userDetail = null, userDraft = null, operationDetail = null) }
         refresh()
+    }
+    fun openOperation(row: Operation, from: Page) {
+        if (state.value.saving) return
+        updateState { it.copy(operationId = row.id, operationReturn = from) }
+        go(Page.OPERATION)
+    }
+    fun openEditOperation() {
+        if (state.value.saving) return
+        val od = state.value.operationDetail ?: return
+        val op = od.operation
+        readJob?.cancel(); ++generation
+        val qty = op.quantity.toBigDecimalOrNull()
+        val price = if (qty != null && qty.signum() > 0) {
+            try { java.math.BigDecimal.valueOf(op.amount, 2).divide(qty, 2, java.math.RoundingMode.HALF_UP).toPlainString() } catch (_: ArithmeticException) { "" }
+        } else ""
+        val values = mapOf(
+            "kind" to op.kind,
+            "date" to od.day.date,
+            "lpg" to if (od.business.type == "LPG") "1" else "0",
+            "quantity" to (qty?.stripTrailingZeros()?.toPlainString() ?: "0"),
+            "count" to (op.count?.toString() ?: ""),
+            "price" to price,
+            "amount" to java.math.BigDecimal.valueOf(op.amount, 2).toPlainString(),
+            "category" to (op.category ?: ""),
+            "note" to op.note
+        )
+        updateState { it.copy(draft = Draft(FormKind.EDIT_OPERATION, values), loading = false, error = null) }
     }
     fun back() {
         if (state.value.saving) return
         if (state.value.draft != null) { readJob?.cancel(); ++generation; updateState { it.copy(draft = null, error = null) }; refresh(); return }
         go(when (state.value.page) {
             Page.DAY -> Page.LEDGER
+            Page.OPERATION -> state.value.operationReturn
             Page.BILLS -> Page.SUPPLIERS
             Page.BATCH -> Page.BATCHES
             Page.USER, Page.ADD_USER -> Page.USERS
@@ -355,6 +385,12 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
         var message = "Record saved successfully."
         when (draft.kind) {
             FormKind.SALE, FormKind.PURCHASE, FormKind.EXPENSE, FormKind.BYPRODUCT -> repo.idempotent(user.id, "daily", body.toString()) { repo.api.daily(it, body) }
+            FormKind.EDIT_OPERATION -> {
+                val opId = requireNotNull(s.operationDetail).operation.id
+                val result = repo.idempotent(user.id, "op-edit:$opId", body.toString()) { repo.api.updateOperation(opId, it, body) }
+                updateState { it.copy(operationDetail = result) }
+                message = "Transaction corrected."
+            }
             FormKind.BATCH_CREATE -> repo.idempotent(user.id, "create-batch", body.toString()) { repo.api.createBatch(it, body) }
             FormKind.BATCH_LOG -> repo.idempotent(user.id, "batch-log:$batchId", body.toString()) { repo.api.logBatch(batchId, it, body) }
             FormKind.HARVEST -> {

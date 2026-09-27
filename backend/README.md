@@ -6,6 +6,8 @@ FastAPI backend for the Admin/Investor PRD. **The Kotlin Admin client lives in [
 
 Implemented: password authentication, roles and assigned-business authorization, chicken/LPG inventory and operational records, suppliers and purchase history, daily closure, broiler funding/start/log/harvest lifecycle, share purchases, append-only financial history, atomic distributions, wallet reservations/refunds, marketplace, portfolio, reports, profile/language, OpenAPI, Postman, Docker and backend CI.
 
+Daily operations record money as the **total price** (weight × per-unit price); profit, revenue and settlements are always computed from those totals, never from weight or bird count. Chicken purchases/sales additionally carry an optional bird **count** that moves `businesses.stock_count` alongside weight-based stock, and expenses carry an optional **category** (e.g. Worker Salary, Electricity). `GET /api/v1/admin/operations/{id}` returns one transaction's full details (operation + day + business); `PATCH /api/v1/admin/operations/{id}` corrects a single transaction **only for the SUPERADMIN and only while its day is OPEN** — it reverses and re-applies the stock/day effects and posts a balancing journal adjustment for any cash difference. Existing databases gain `operations.count`, `operations.category` and `businesses.stock_count` automatically: the API self-heals missing columns on the first request (same pattern as the legacy icon column), so a redeploy onto an old database needs no manual step; `python -m app.manage upgrade-db` remains available as the explicit operator command and is a no-op once healed.
+
 **This is a runnable backend MVP, not a launch-ready financial service.** Real OTP, identity verification, Raast/NayaPay/UBL transfers and callbacks are not implemented. The development-only KYC/deposit/withdrawal simulation is deliberately labelled and disabled outside development. Password login uses a phone number as the username; it does **not** verify ownership of that phone. Do not use this build to accept real investor money.
 
 ### Verification performed in the development sandbox
@@ -58,6 +60,12 @@ Open:
 - **Swagger / interactive API:** http://localhost:8000/docs
 - **ReDoc:** http://localhost:8000/redoc
 - **Health:** http://localhost:8000/health
+- **Database health:** http://localhost:8000/health/db — public, no token, no
+  transaction lock. Returns `200` with `latency_ms` when `SELECT 1` succeeds and
+  `503` when the database is unreachable. Intended for uptime/keep-alive cron
+  jobs that must keep a scaled-to-zero host (e.g. Render free tier) warm; it
+  answers in milliseconds and sends `Cache-Control: no-store` so a CDN or proxy
+  cannot serve a cached reply instead of waking the app.
 - **Live OpenAPI:** http://localhost:8000/openapi.json
 
 The database persists in the Compose `pgdata` volume. `docker compose down` stops services without deleting your data. **`docker compose down -v` destroys the local database.**
@@ -396,9 +404,9 @@ backend/
 | Table | Responsibility |
 |---|---|
 | `users` | Phone, password hash, role, KYC flag, language, JWT revocation version |
-| `businesses`, `admin_assignments` | Offering/stock configuration and business-scoped admin access |
+| `businesses`, `admin_assignments` | Offering/stock configuration (weight stock, counted stock via `stock_count`) and business-scoped admin access |
 | `suppliers` | Business supplier directory |
-| `daily_ledgers`, `operations` | Daily state and typed purchases/sales/byproduct/expenses |
+| `daily_ledgers`, `operations` | Daily state and typed purchases/sales/byproduct/expenses; operations carry weight, optional bird `count` and optional expense `category` |
 | `batches`, `batch_logs` | Broiler funding/lifecycle, costs, feed and mortality |
 | `share_ledger` | Append-only acquisition events with user, business, optional batch, shares, paid amount and time |
 | `journal`, `postings` | Balanced accounting events; wallet balance is a sum, not a mutable field |

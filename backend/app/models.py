@@ -53,6 +53,7 @@ class Business(Base):
     share_price: Mapped[int] = mapped_column(BigInteger)
     stock: Mapped[float] = mapped_column(Numeric(18, 3), default=0)
     stock_cost: Mapped[int] = mapped_column(BigInteger, default=0)
+    stock_count: Mapped[int] = mapped_column(Integer, default=0)
     icon_url: Mapped[str | None] = mapped_column(String(500), nullable=True, default=None)
     # Nullable FK to the uploaded image bytes; plain string icon_url values are
     # preserved for legacy file paths and explicitly approved external URLs.
@@ -61,7 +62,7 @@ class Business(Base):
     )
     __table_args__ = (
         CheckConstraint(
-            "total_shares > 0 AND share_price > 0 AND stock >= 0 AND stock_cost >= 0"
+            "total_shares > 0 AND share_price > 0 AND stock >= 0 AND stock_cost >= 0 AND stock_count >= 0"
         ),
     )
 
@@ -132,8 +133,10 @@ class Operation(Base):
     day_id: Mapped[str] = mapped_column(ForeignKey("daily_ledgers.id"))
     kind: Mapped[str] = mapped_column(String(20))
     quantity: Mapped[float] = mapped_column(Numeric(18, 3), default=0)
+    count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     amount: Mapped[int] = mapped_column(BigInteger)
     cost: Mapped[int] = mapped_column(BigInteger, default=0)
+    category: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
     channel: Mapped[str | None] = mapped_column(String(20))
     note: Mapped[str] = mapped_column(String(1000), default="")
     supplier_id: Mapped[str | None] = mapped_column(ForeignKey("suppliers.id"))

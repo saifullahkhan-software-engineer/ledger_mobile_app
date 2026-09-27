@@ -54,7 +54,19 @@ fun quantityInput(text: String, zeroAllowed: Boolean = false, whole: Boolean = f
     require(value.stripTrailingZeros().scale() <= if (whole) 0 else 3) { if (whole) "Enter whole cylinders" else "Use at most three decimal places" }
     return value.toPlainString()
 }
-enum class FormKind { SALE, PURCHASE, EXPENSE, BYPRODUCT, BATCH_CREATE, BATCH_LOG, HARVEST, SUPPLIER, PROFILE, PASSWORD }
+enum class FormKind { SALE, PURCHASE, EXPENSE, BYPRODUCT, BATCH_CREATE, BATCH_LOG, HARVEST, SUPPLIER, PROFILE, PASSWORD, EDIT_OPERATION }
+
+val EXPENSE_CATEGORIES = listOf("Worker Salary", "Electricity", "Ice / Cold", "Transport", "Feed", "Rent", "Other")
+
+/** Total price in paisa = weight/cylinders × per-unit price; profit always uses this total, never the weight alone. */
+fun totalInput(quantityText: String, priceText: String, whole: Boolean): Long {
+    val kg = BigDecimal(quantityInput(quantityText, false, whole))
+    val price = moneyInput(priceText)
+    val total = try { kg.multiply(BigDecimal.valueOf(price)).setScale(0, RoundingMode.HALF_UP).longValueExact() }
+    catch (_: ArithmeticException) { throw IllegalArgumentException("Total amount is outside the allowed range") }
+    require(total in 1L..1_000_000_000_000L) { "Total amount is outside the allowed range" }
+    return total
+}
 data class Draft(val kind: FormKind, val values: Map<String, String> = emptyMap())
 
 /** UI uses rupees; only this boundary converts to exact integer paisa. */
@@ -72,18 +84,50 @@ fun formBody(draft: Draft, business: Business?, batch: Batch?, today: String = b
     }
     return JsonObject().apply {
         when (draft.kind) {
-            FormKind.SALE, FormKind.PURCHASE, FormKind.EXPENSE, FormKind.BYPRODUCT -> {
+            FormKind.SALE, FormKind.PURCHASE -> {
                 val b = requireNotNull(business) { "Choose a business" }
                 require(b.type != "BROILER") { "Use batch logs for broiler expenses" }
                 require(date() == today) { "Daily records must use today's Pakistan date" }
                 addProperty("business_id", b.id); addProperty("date", date()); addProperty("kind", draft.kind.name)
-                addProperty("amount", moneyInput(value("amount")))
-                if (draft.kind != FormKind.EXPENSE) addProperty("quantity", quantityInput(value("quantity"), draft.kind == FormKind.BYPRODUCT, b.type == "LPG"))
+                addProperty("quantity", quantityInput(value("quantity"), false, b.type == "LPG"))
+                addProperty("amount", totalInput(value("quantity"), value("price"), b.type == "LPG"))
+                if (value("count").isNotBlank()) addProperty("count", count("count"))
                 if (b.type == "LPG" && draft.kind == FormKind.SALE) {
                     require(value("channel") in listOf("RETAIL", "COMMERCIAL")) { "Choose a sale channel" }
                     addProperty("channel", value("channel"))
                 }
                 if (draft.kind == FormKind.PURCHASE && value("supplier_id").isNotEmpty()) addProperty("supplier_id", value("supplier_id"))
+                require(value("note").length <= 1000) { "Note must be at most 1,000 characters" }
+                addProperty("note", value("note"))
+            }
+            FormKind.EXPENSE, FormKind.BYPRODUCT -> {
+                val b = requireNotNull(business) { "Choose a business" }
+                require(b.type != "BROILER") { "Use batch logs for broiler expenses" }
+                require(date() == today) { "Daily records must use today's Pakistan date" }
+                addProperty("business_id", b.id); addProperty("date", date()); addProperty("kind", draft.kind.name)
+                addProperty("amount", moneyInput(value("amount")))
+                if (draft.kind == FormKind.BYPRODUCT) addProperty("quantity", quantityInput(value("quantity"), true, false))
+                if (draft.kind == FormKind.EXPENSE && value("category").isNotBlank()) {
+                    require(value("category").length <= 50) { "Category is too long" }
+                    addProperty("category", value("category").trim())
+                }
+                require(value("note").length <= 1000) { "Note must be at most 1,000 characters" }
+                addProperty("note", value("note"))
+            }
+            FormKind.EDIT_OPERATION -> {
+                val kind = value("kind")
+                require(kind in listOf("PURCHASE", "SALE", "BYPRODUCT", "EXPENSE")) { "Unknown transaction kind" }
+                if (kind != "EXPENSE") addProperty("quantity", quantityInput(value("quantity"), kind == "BYPRODUCT", value("lpg") == "1"))
+                if (kind == "PURCHASE" || kind == "SALE") {
+                    addProperty("amount", totalInput(value("quantity"), value("price"), value("lpg") == "1"))
+                    addProperty("count", if (value("count").isNotBlank()) count("count", true) else 0)
+                } else {
+                    addProperty("amount", moneyInput(value("amount")))
+                }
+                if (kind == "EXPENSE") {
+                    require(value("category").length <= 50) { "Category is too long" }
+                    addProperty("category", value("category").trim())
+                }
                 require(value("note").length <= 1000) { "Note must be at most 1,000 characters" }
                 addProperty("note", value("note"))
             }

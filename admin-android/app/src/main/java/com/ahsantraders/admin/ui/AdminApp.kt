@@ -248,13 +248,6 @@ import kotlinx.coroutines.launch
                                 label = { Text(tr("Reports")) },
                                 enabled = !s.saving
                             )
-                            NavigationBarItem(
-                                selected = s.page == Page.SETTINGS,
-                                onClick = { vm.go(Page.SETTINGS) },
-                                icon = { Icon(Icons.Default.Person, null) },
-                                label = { Text(tr("Settings")) },
-                                enabled = !s.saving
-                            )
                         }
                     }
                 ) { padding ->
@@ -311,6 +304,7 @@ import kotlinx.coroutines.launch
 
 fun pageTitle(page: Page): String = when (page) {
     Page.HOME -> "Dashboard"; Page.BUSINESS -> "Business summary"; Page.LEDGER, Page.DAY -> "Transaction history"
+    Page.OPERATION -> "Transaction details"
     Page.STOCK -> "Stock"; Page.SUPPLIERS -> "Suppliers"; Page.BILLS -> "Supplier bills"; Page.EXPENSES -> "Expenses"
     Page.REPORTS -> "Reports"; Page.SETTINGS -> "Settings"; Page.BATCHES -> "Batches"; Page.BATCH -> "Batch history"; Page.SETTLEMENTS -> "Settlement history"
     Page.USERS -> "Users & access"; Page.USER -> "User details"; Page.ADD_USER -> "Add user"; Page.ICONS -> "Screen icons"

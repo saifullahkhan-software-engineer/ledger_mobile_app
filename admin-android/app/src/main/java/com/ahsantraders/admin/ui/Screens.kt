@@ -177,10 +177,12 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
             } else {
                 summary.day?.let { Status(it.status) }
                 DataRow("Revenue", rupees(summary.day?.revenue ?: 0))
-                DataRow("Purchased", "${summary.purchased_quantity} ${if (b.type == "LPG") "cylinders" else "kg"}")
-                DataRow("Sold", "${summary.sold_quantity} ${if (b.type == "LPG") "cylinders" else "kg"}")
+                DataRow("Purchased", "${summary.purchased_quantity} kg")
+                DataRow("Sold", "${summary.sold_quantity} kg")
                 if (b.type == "CHICKEN" && summary.purchased_count > 0) DataRow("Purchased (birds)", summary.purchased_count.toString())
                 if (b.type == "CHICKEN" && summary.sold_count > 0) DataRow("Sold (birds)", summary.sold_count.toString())
+                if (b.type == "LPG" && summary.purchased_count > 0) DataRow("Purchased (cylinders)", summary.purchased_count.toString())
+                if (b.type == "LPG" && summary.sold_count > 0) DataRow("Sold (cylinders)", summary.sold_count.toString())
                 if (b.type == "CHICKEN") DataRow("Other sale", rupees(summary.byproduct_revenue))
                 else { DataRow("Retail sales", summary.retail_sold); DataRow("Commercial sales", summary.commercial_sold) }
                 DataRow("Operating expenses", rupees(summary.day?.expenses ?: 0))
@@ -318,7 +320,7 @@ fun transactionDetail(row: Operation, unit: String): String {
         parts += "${row.quantity} $unit"
         row_price_per_unit_paisa(row)?.let { parts += "${amount(it)} / $unit" }
     }
-    row.count?.takeIf { it > 0 }?.let { parts += "$it birds" }
+    row.count?.takeIf { it > 0 }?.let { parts += "$it pcs" }
     if (row.note.isNotBlank()) parts += row.note
     return parts.joinToString(" · ").ifBlank { "—" }
 }
@@ -382,8 +384,8 @@ fun transactionDetail(row: Operation, unit: String): String {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) { Text(tr(kindLabel(row.kind)), color = Green, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)); Text(rupees(row.amount), fontWeight = FontWeight.Bold) }
             row.date?.takeIf { it.isNotBlank() }?.let { DataRow("Date", it) }
-            if (row.kind != "EXPENSE") DataRow("Weight", row.quantity)
-            row.count?.takeIf { it > 0 }?.let { DataRow("Quantity (birds)", it.toString()) }
+            if (row.kind != "EXPENSE") DataRow("Weight (kg)", row.quantity)
+            row.count?.takeIf { it > 0 }?.let { DataRow("Quantity (count)", it.toString()) }
             row.category?.takeIf { it.isNotBlank() }?.let { DataRow("Category", it) }
             row.channel?.let { DataRow("Sale channel", tr(it.lowercase().replaceFirstChar { c -> c.uppercase() })) }
             if (row.note.isNotEmpty()) Text(row.note, style = MaterialTheme.typography.bodyMedium)
@@ -570,8 +572,9 @@ fun transactionDetail(row: Operation, unit: String): String {
 @Composable fun SecondaryScreen(s: AdminState, vm: AdminViewModel, confirmClose: (Day) -> Unit) {
     when (s.page) {
         Page.STOCK -> s.stock?.let { stock ->
+            val countLabel = if (s.business?.type == "LPG") "Quantity (cylinders)" else "Quantity (birds)"
             Panel { Icon(Icons.Default.Inventory2, null, tint = Green, modifier = Modifier.size(38.dp)); DataRow(if (stock.unit == "birds") "Live birds" else "Remaining stock", if (stock.unit == "birds") stock.live_birds.toString() else "${stock.quantity} ${stock.unit}")
-                if (stock.unit == "kg" && stock.count > 0) DataRow("Quantity (birds)", stock.count.toString())
+                if (stock.unit == "kg" && stock.count > 0) DataRow(countLabel, stock.count.toString())
                 if (stock.unit != "birds") DataRow("Inventory value", rupees(stock.inventory_cost)) }
             Text("Stock changes when you record operations. Negative stock is not allowed.", color = Muted, fontSize = 12.sp)
         }
@@ -598,7 +601,7 @@ fun transactionDetail(row: Operation, unit: String): String {
                 } }
             } else {
                 HistoryFilters(s, vm)
-                val unit = if (s.business?.type == "LPG") "cylinders" else "kg"
+                val unit = "kg"
                 if (s.operations.isEmpty() && !s.loading) Empty("No transactions in this range")
                 s.operations.forEach { row -> TransactionRow(row, unit) { vm.openOperation(row, s.page) } }
             }
@@ -626,19 +629,20 @@ fun transactionDetail(row: Operation, unit: String): String {
             } else {
                 Panel { DataRow("Date", s.dayDate); Text(tr("No records for this date."), color = Muted, fontSize = 12.sp) }
             }
-            val unit = if (s.business?.type == "LPG") "cylinders" else "kg"
+            val unit = "kg"
             if (s.operations.isEmpty() && !s.loading) Empty("No transactions on this date")
             s.operations.forEach { row -> TransactionRow(row, unit) { vm.openOperation(row, s.page) } }
             if (pickDay) DayPickerDialog(s.dayDate, s.dayFirstDate, s.dayLastDate ?: businessDate(), { pickDay = false }) { vm.openDayAt(it) }
         }
         Page.OPERATION -> s.operationDetail?.let { od ->
             val op = od.operation
+            val countLabel = if (od.business.type == "LPG") "Quantity (cylinders)" else "Quantity (birds)"
             Panel {
                 Row(verticalAlignment = Alignment.CenterVertically) { Text(tr(kindLabel(op.kind)), color = Green, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)); Status(od.day.status) }
                 DataRow("Date", od.day.date)
                 DataRow("Business", od.business.name)
-                if (op.kind != "EXPENSE") DataRow("Weight", op.quantity)
-                op.count?.takeIf { it > 0 }?.let { DataRow("Quantity (birds)", it.toString()) }
+                if (op.kind != "EXPENSE") DataRow("Weight (kg)", op.quantity)
+                op.count?.takeIf { it > 0 }?.let { DataRow(countLabel, it.toString()) }
                 row_price_per_unit(op)?.let { DataRow("Price per unit", it) }
                 DataRow("Total amount", rupees(op.amount))
                 if (op.kind == "SALE") DataRow("Cost of sales", rupees(op.cost))
@@ -648,7 +652,7 @@ fun transactionDetail(row: Operation, unit: String): String {
                 if (op.note.isNotEmpty()) Text(op.note, style = MaterialTheme.typography.bodyMedium)
                 Text("Recorded ${op.created_at}", fontSize = 11.sp, color = Muted)
             }
-            Text("Profit is calculated on the total price above, not on the weight or bird count.", color = Muted, fontSize = 12.sp)
+            Text("Profit is calculated on the total price above, not on the weight or count.", color = Muted, fontSize = 12.sp)
             if (s.user?.role == "SUPERADMIN") {
                 Button(onClick = { vm.openEditOperation() }, enabled = !s.saving, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Edit, null); Spacer(Modifier.width(8.dp)); Text(tr("Edit transaction")) }
                 if (od.day.status == "OPEN") {

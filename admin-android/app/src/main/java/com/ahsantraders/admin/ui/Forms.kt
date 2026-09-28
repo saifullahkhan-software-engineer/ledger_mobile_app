@@ -26,7 +26,7 @@ fun formTitle(kind: FormKind): String = when (kind) {
  */
 @Composable private fun RecentTransactions(s: AdminState, vm: AdminViewModel) {
     val kind = s.draft?.kind ?: return
-    val unit = if (s.business?.type == "LPG") "Cylinders" else "KG"
+    val unit = "KG"
     val (title, empty) = when (kind) {
         FormKind.SALE -> "Last 5 Sales" to "No sales recorded yet."
         FormKind.PURCHASE -> "Last 5 Purchases" to "No purchases recorded yet."
@@ -54,15 +54,15 @@ fun formTitle(kind: FormKind): String = when (kind) {
             val lpg = s.business?.type == "LPG"
             val chicken = s.business?.type == "CHICKEN"
             input("date", "Date", hint = "YYYY-MM-DD · ${businessDate()} in Pakistan")
-            input("quantity", if (lpg) "Cylinders" else "Weight (kg)", KeyboardType.Decimal)
+            input("quantity", "Weight (kg)", KeyboardType.Decimal)
+            if (lpg) input("count", "Quantity (cylinders)", KeyboardType.Number, hint = "Number of cylinders, e.g. 5")
             if (chicken) input("count", "Quantity (birds)", KeyboardType.Number, hint = "Optional — number of birds, e.g. 3 or 4")
-            input("price", if (lpg) "Price (per cylinder)" else "Price (per KG)", KeyboardType.Decimal)
-            val total = runCatching { totalInput(draft.values["quantity"].orEmpty(), draft.values["price"].orEmpty(), lpg) }.getOrNull()
+            input("price", "Price (per KG)", KeyboardType.Decimal)
+            val total = runCatching { totalInput(draft.values["quantity"].orEmpty(), draft.values["price"].orEmpty(), false) }.getOrNull()
             total?.let { Panel { DataRow("Total Amount", rupees(it)); Text("Weight × price. Profit is calculated on this total price.", color = Muted, style = MaterialTheme.typography.bodySmall) } }
             if (draft.kind == FormKind.SALE && lpg) Selection("Sale channel", draft.values["channel"].orEmpty(), listOf("RETAIL" to "Retail", "COMMERCIAL" to "Commercial"), !s.saving, translateChoices = true) { vm.field("channel", it) }
             if (draft.kind == FormKind.PURCHASE) Selection("Supplier (optional)", draft.values["supplier_id"].orEmpty(), listOf("" to "None") + s.suppliers.map { it.id to it.name }, !s.saving) { vm.field("supplier_id", it) }
             input("note", "Note", multiline = true)
-            RecentTransactions(s, vm)
         }
         FormKind.EXPENSE, FormKind.BYPRODUCT -> {
             input("date", "Date", hint = "YYYY-MM-DD · ${businessDate()} in Pakistan")
@@ -77,17 +77,17 @@ fun formTitle(kind: FormKind): String = when (kind) {
             }
             input("amount", "Amount (Rs.)", KeyboardType.Decimal, hint = "Enter rupees, e.g. 1250.50 — not paisa")
             input("note", if (draft.kind == FormKind.EXPENSE) "Description" else "Note", multiline = true)
-            RecentTransactions(s, vm)
         }
         FormKind.EDIT_OPERATION -> {
             val kind = draft.values["kind"].orEmpty()
             val lpg = draft.values["lpg"] == "1"
             Text("Correcting a ${kindLabel(kind).lowercase()} from ${draft.values["date"].orEmpty()}. The date cannot change.", color = Muted, style = MaterialTheme.typography.bodyMedium)
-            if (kind != "EXPENSE") input("quantity", if (lpg) "Cylinders" else "Weight (kg)", KeyboardType.Decimal)
+            if (kind != "EXPENSE") input("quantity", "Weight (kg)", KeyboardType.Decimal)
             if (kind == "PURCHASE" || kind == "SALE") {
+                if (lpg) input("count", "Quantity (cylinders)", KeyboardType.Number, hint = "Number of cylinders, e.g. 5")
                 if (!lpg) input("count", "Quantity (birds)", KeyboardType.Number, hint = "Optional — number of birds, e.g. 3 or 4")
-                input("price", if (lpg) "Price (per cylinder)" else "Price (per KG)", KeyboardType.Decimal)
-                val total = runCatching { totalInput(draft.values["quantity"].orEmpty(), draft.values["price"].orEmpty(), lpg) }.getOrNull()
+                input("price", "Price (per KG)", KeyboardType.Decimal)
+                val total = runCatching { totalInput(draft.values["quantity"].orEmpty(), draft.values["price"].orEmpty(), false) }.getOrNull()
                 total?.let { Panel { DataRow("Total Amount", rupees(it)) } }
             } else {
                 input("amount", "Amount (Rs.)", KeyboardType.Decimal, hint = "Enter rupees, e.g. 1250.50 — not paisa")
@@ -133,5 +133,8 @@ fun formTitle(kind: FormKind): String = when (kind) {
         Icon(Icons.Default.Check, null); Spacer(Modifier.width(8.dp)); Text(tr(when (draft.kind) { FormKind.PROFILE, FormKind.PASSWORD -> "Save changes"; FormKind.EDIT_OPERATION -> "Save correction"; else -> "Save record" }))
     }
     TextButton(onClick = vm::back, enabled = !s.saving, modifier = Modifier.fillMaxWidth()) { Text(tr("Cancel")) }
+    if (draft.kind in listOf(FormKind.SALE, FormKind.PURCHASE, FormKind.EXPENSE, FormKind.BYPRODUCT)) {
+        RecentTransactions(s, vm)
+    }
     if (harvestConfirm) ConfirmDialog("Harvest batch", "This closes ${s.batch?.name.orEmpty()} and immediately settles investors. Check the yield, price and additional expenses before confirming.", { harvestConfirm = false }) { harvestConfirm = false; vm.submit() }
 }

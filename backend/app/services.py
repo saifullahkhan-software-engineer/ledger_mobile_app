@@ -285,8 +285,6 @@ async def operation(db, user, p):
             fail("Supplier belongs to another business", 422)
     if p.kind in ("PURCHASE", "SALE") and p.quantity <= 0:
         fail("Positive quantity required", 422)
-    if b.type == "LPG" and p.quantity != p.quantity.to_integral_value():
-        fail("Cylinder quantity must be an integer", 422)
     if b.type == "LPG" and p.kind == "BYPRODUCT":
         fail("Byproduct sales are chicken-only", 422)
     if b.type == "LPG" and p.kind == "SALE" and not p.channel:
@@ -294,10 +292,10 @@ async def operation(db, user, p):
     if p.kind == "EXPENSE" and p.quantity:
         fail("Expenses cannot change stock", 422)
     if p.count is not None:
-        if b.type != "CHICKEN":
-            fail("Bird count is only supported for chicken businesses", 422)
+        if b.type not in ("CHICKEN", "LPG"):
+            fail("Count is only supported for chicken and LPG businesses", 422)
         if p.kind not in ("PURCHASE", "SALE"):
-            fail("Bird count is only supported for purchases and sales", 422)
+            fail("Count is only supported for purchases and sales", 422)
     if p.category is not None and p.kind != "EXPENSE":
         fail("Category is only supported for expenses", 422)
     cost = 0
@@ -381,12 +379,10 @@ async def edit_operation(db, user, operation_id, p):
     kind = op.kind
     if kind in ("PURCHASE", "SALE") and quantity <= 0:
         fail("Positive quantity required", 422)
-    if b.type == "LPG" and quantity != quantity.to_integral_value():
-        fail("Cylinder quantity must be an integer", 422)
     if kind == "EXPENSE" and quantity:
         fail("Expenses cannot change stock", 422)
-    if count is not None and (b.type != "CHICKEN" or kind not in ("PURCHASE", "SALE")):
-        fail("Bird count is only supported for chicken purchases and sales", 422)
+    if count is not None and (b.type not in ("CHICKEN", "LPG") or kind not in ("PURCHASE", "SALE")):
+        fail("Count is only supported for chicken and LPG purchases and sales", 422)
     if category is not None and kind != "EXPENSE":
         fail("Category is only supported for expenses", 422)
     _apply_operation_effect(b, day, kind, op.quantity, op.amount, op.cost, op.count, -1)

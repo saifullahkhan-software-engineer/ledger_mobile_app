@@ -15,7 +15,7 @@ import com.ahsantraders.admin.data.*
 
 fun formTitle(kind: FormKind): String = when (kind) {
     FormKind.SALE -> "Add sale"; FormKind.PURCHASE -> "Add purchase"; FormKind.EXPENSE -> "Add expense"
-    FormKind.BYPRODUCT -> "Pota-Kaliji sale"; FormKind.BATCH_CREATE -> "Create batch"; FormKind.BATCH_LOG -> "Add daily record"
+    FormKind.BYPRODUCT -> "Other sale"; FormKind.BATCH_CREATE -> "Create batch"; FormKind.BATCH_LOG -> "Add daily record"
     FormKind.HARVEST -> "Harvest batch"; FormKind.SUPPLIER -> "Add supplier"; FormKind.PROFILE -> "Edit profile"; FormKind.PASSWORD -> "Change password"
     FormKind.EDIT_OPERATION -> "Correct transaction"
 }
@@ -48,7 +48,10 @@ fun formTitle(kind: FormKind): String = when (kind) {
         }
         FormKind.EXPENSE, FormKind.BYPRODUCT -> {
             input("date", "Date", hint = "YYYY-MM-DD · ${businessDate()} in Pakistan")
-            if (draft.kind == FormKind.BYPRODUCT) input("quantity", "Quantity (kg)", KeyboardType.Decimal)
+            if (draft.kind == FormKind.BYPRODUCT) {
+                input("quantity", "Quantity (kg, optional)", KeyboardType.Decimal, hint = "Leave empty when the weight is unknown")
+                Text("Use Other sale for any income that is not a regular chicken or LPG sale. Enter the total amount received; the weight is optional.", color = Muted, style = MaterialTheme.typography.bodySmall)
+            }
             if (draft.kind == FormKind.EXPENSE) {
                 val current = draft.values["category"].orEmpty()
                 val choices = listOf("" to "None") + (if (current.isNotBlank() && current !in EXPENSE_CATEGORIES) listOf(current) else emptyList()).plus(EXPENSE_CATEGORIES).map { it to it }
@@ -60,7 +63,7 @@ fun formTitle(kind: FormKind): String = when (kind) {
         FormKind.EDIT_OPERATION -> {
             val kind = draft.values["kind"].orEmpty()
             val lpg = draft.values["lpg"] == "1"
-            Text("Correcting a ${kind.lowercase()} from ${draft.values["date"].orEmpty()}. The date cannot change.", color = Muted, style = MaterialTheme.typography.bodyMedium)
+            Text("Correcting a ${kindLabel(kind).lowercase()} from ${draft.values["date"].orEmpty()}. The date cannot change.", color = Muted, style = MaterialTheme.typography.bodyMedium)
             if (kind != "EXPENSE") input("quantity", if (lpg) "Cylinders" else "Weight (kg)", KeyboardType.Decimal)
             if (kind == "PURCHASE" || kind == "SALE") {
                 if (!lpg) input("count", "Quantity (birds)", KeyboardType.Number, hint = "Optional — number of birds, e.g. 3 or 4")
@@ -76,7 +79,7 @@ fun formTitle(kind: FormKind): String = when (kind) {
                 Selection("Category", current, choices, !s.saving) { vm.field("category", it) }
             }
             input("note", if (kind == "EXPENSE") "Description" else "Note", multiline = true)
-            Text("Owner-only correction: only the super admin can update a single transaction, and only while its day is still open.", color = Muted, style = MaterialTheme.typography.bodySmall)
+            Text("Owner-only correction: only the super admin can update a past-date transaction. Saving rebuilds that date's summary; a payout that was already settled is never changed.", color = Muted, style = MaterialTheme.typography.bodySmall)
         }
         FormKind.SUPPLIER -> {
             input("name", "Supplier name"); input("phone", "Phone number", KeyboardType.Phone, hint = "Optional · +923001234567")

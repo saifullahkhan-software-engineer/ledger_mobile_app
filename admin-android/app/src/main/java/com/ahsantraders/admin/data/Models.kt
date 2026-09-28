@@ -17,7 +17,9 @@ data class Base64IconUploadReq(val filename: String, val data: String)
 data class BusinessReport(val business_id: String, val name: String, val type: String, val revenue: Long, val cost_and_expenses: Long, val net_profit: Long, val open_days: Int)
 data class Previous(val total_sales: Long, val total_profit: Long)
 data class Report(val start: String, val end: String, val businesses: List<BusinessReport>, val total_sales: Long, val total_cost_and_expenses: Long, val total_profit: Long, val yesterday: Previous? = null)
-data class Day(val id: String, val business_id: String, val date: String, val status: String, val revenue: Long, val cost: Long, val expenses: Long, val net_profit: Long) {
+// settled_net_profit / variance are sent by the day endpoints: they show what a
+// closed date actually paid out and the gap left by a super-admin correction.
+data class Day(val id: String, val business_id: String, val date: String, val status: String, val revenue: Long, val cost: Long, val expenses: Long, val net_profit: Long, val settled_net_profit: Long? = null, val variance: Long? = null) {
     val profit: Long get() = revenue - cost - expenses
 }
 data class Batch(val id: String, val business_id: String, val name: String, val chicks: Int, val deaths: Int, val total_shares: Long, val share_price: Long, val expenses: Long, val revenue: Long, val net_profit: Long, val yield_kg: String, val status: String, val started_on: String?, val closed_on: String?)

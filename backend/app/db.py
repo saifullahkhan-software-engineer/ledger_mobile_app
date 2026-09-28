@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, event, inspect, select, text
@@ -109,14 +110,24 @@ class Base(DeclarativeBase):
 
 
 async def get_db():
+    async with write_session() as db:
+        yield db
+
+
+@asynccontextmanager
+async def write_session():
+    """Open a serialized write transaction.
+
+    Used by request handling and by the scheduled `auto-close-days` command so
+    both obey the same lock: MVP correctness over throughput. PostgreSQL
+    releases this row lock on commit/rollback, including across workers.
+    """
     from .models import WriteLock
 
     await ensure_additive_columns()
 
     async with AsyncSessionLocal() as db:
         async with db.begin():
-            # MVP correctness over throughput: serialize transactions. PostgreSQL
-            # releases this row lock on commit/rollback, including across workers.
             if engine.dialect.name == "sqlite":
                 await db.execute(text("BEGIN IMMEDIATE"))
             else:

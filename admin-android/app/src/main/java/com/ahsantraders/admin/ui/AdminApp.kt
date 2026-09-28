@@ -296,7 +296,7 @@ import kotlinx.coroutines.launch
             if (kind == FormKind.EXPENSE) Text("Broiler expenses are recorded inside an active batch.", style = MaterialTheme.typography.bodySmall)
         }
     }, confirmButton = { TextButton(onClick = { chooseKind = null }) { Text(tr("Cancel")) } }) }
-    closeDay?.let { day -> ConfirmDialog("Close day", "Close ${day.date}? Net profit is ${rupees(day.profit)}. This finalizes the records and distributes eligible investor profit immediately. You cannot reopen this day in the app.", { closeDay = null }) { closeDay = null; vm.closeDay(day) } }
+    closeDay?.let { day -> ConfirmDialog("Close day", "Close ${day.date} now? Net profit is ${rupees(day.profit)}. Days close by themselves at midnight (Pakistan time); closing now finalizes the records and distributes eligible investor profit immediately. Afterwards only the super admin can correct this date's transactions, and a settled payout is never changed.", { closeDay = null }) { closeDay = null; vm.closeDay(day) } }
     if (startBatch) ConfirmDialog("Start batch", "Starting this batch closes its funding window and locks investor ownership. Continue?", { startBatch = false }) { startBatch = false; vm.startBatch() }
     if (logout) ConfirmDialog("Sign out", "Sign out and revoke existing sessions? If offline, only this device can be signed out.", { logout = false }) { logout = false; vm.logout(); onLogout?.invoke() }
     if (discard) ConfirmDialog("Cancel", "Discard this form? Unsaved fields will be lost. If a previous submission timed out, check the records before creating a new transaction.", { discard = false }) { discard = false; vm.back() }

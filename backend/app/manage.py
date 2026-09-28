@@ -9,6 +9,9 @@ Commands
                   into image_assets and pointing those rows at the new
                   /api/v1/images/{id} serving URLs.
 - seed:           create the owner account and sample businesses.
+- auto-close-days: close (and settle) every day whose business date has ended;
+                  safe to run from cron every few minutes. The API also performs
+                  this sweep itself before it reports or changes day status.
 """
 
 import argparse
@@ -28,6 +31,7 @@ from .db import (
     engine,
     sync_engine,
     ensure_additive_columns_on_connection,
+    write_session,
 )
 from .images import (
     UPLOAD_DIR,
@@ -256,10 +260,30 @@ async def seed():
     )
 
 
+async def auto_close_days():
+    """Close and settle every day whose Asia/Karachi business date has ended.
+
+    Uses the same serialized write transaction as the API, so it is safe to run
+    from cron while the server is serving requests.
+    """
+    from .services import auto_close_due_days
+
+    async with write_session() as db:
+        closed = await auto_close_due_days(db)
+        summary = ", ".join(
+            f"{day.date} ({day.business_id})" for day in closed
+        )
+    if not closed:
+        print("No days past their business date; nothing to close.")
+        return
+    print(f"Auto-closed {len(closed)} day(s): {summary}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "command", choices=["init-db", "upgrade-db", "migrate-images", "seed"]
+        "command",
+        choices=["init-db", "upgrade-db", "migrate-images", "seed", "auto-close-days"],
     )
     args = parser.parse_args()
     if args.command != "init-db":
@@ -270,5 +294,6 @@ if __name__ == "__main__":
         "upgrade-db": upgrade,
         "migrate-images": migrate_images,
         "seed": seed,
+        "auto-close-days": auto_close_days,
     }
     asyncio.run(commands[args.command]())

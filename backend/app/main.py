@@ -79,9 +79,13 @@ from .security import (
 )
 from .services import (
     allowed,
+    auto_close_due_days,
     business_ids,
     buy,
+    close_day_record,
     data,
+    day_payload,
+    day_payloads,
     edit_operation,
     fail,
     get,
@@ -614,6 +618,8 @@ async def daily_list(
     limit: int = Query(50, ge=1, le=200),
 ):
     await allowed(db, u, business_id)
+    # Report the midnight rule immediately: a finished day is already settled.
+    await auto_close_due_days(db)
     result = await db.execute(
         select(Day)
         .where(Day.business_id == business_id)
@@ -621,10 +627,7 @@ async def daily_list(
         .offset(offset)
         .limit(limit)
     )
-    return [
-        data(d)
-        for d in result.scalars()
-    ]
+    return await day_payloads(db, list(result.scalars()))
 
 
 @app.get("/api/v1/admin/ledger/{day_id}/operations", tags=["Operations"])
@@ -665,14 +668,11 @@ async def close_day(p: CloseDay, db: DB, key: Key, u=Depends(admin)):
     async def action():
         d = await get(db, Day, p.day_id)
         b = await allowed(db, u, d.business_id)
-        if d.status != "OPEN":
-            fail("Day already settled")
-        d.net_profit = d.revenue - d.cost - d.expenses
-        d.status = "CLOSED"
-        result = await settle(
-            db, b, f"day:{d.id}", d.net_profit, b.total_shares, await owned(db, b.id)
-        )
-        return {"day": data(d), "settlement": result}
+        # Days past their business date close themselves first (midnight rule),
+        # so an operator closing yesterday by hand gets the same result as the
+        # automatic sweep instead of a duplicate settlement.
+        await auto_close_due_days(db, b.id)
+        return await close_day_record(db, b, d)
 
     return await once(db, u, "close", key, p.model_dump(), action)
 
@@ -806,6 +806,8 @@ async def reports(
     if business_id:
         await allowed(db, u, business_id)
         ids = [business_id]
+    # Finished days settle before their totals are reported (midnight rule).
+    await auto_close_due_days(db)
     rows = []
     result = await db.execute(select(Business).where(Business.id.in_(ids)))
     for b in result.scalars():
@@ -1105,6 +1107,8 @@ async def business_summary(
     business_id: str, db: DB, u=Depends(admin), on: date | None = None
 ):
     b = await allowed(db, u, business_id)
+    # A day whose business date has ended is already closed and settled.
+    await auto_close_due_days(db)
     on = on or today()
     day_result = await db.execute(select(Day).where(Day.business_id == b.id, Day.date == on))
     day = day_result.scalar_one_or_none()
@@ -1200,7 +1204,12 @@ async def admin_batch_list(
 
 @app.get("/api/v1/admin/ledger/{day_id}", tags=["Operations"])
 async def daily_detail(day_id: str, db: DB, u=Depends(admin)):
-    """Refresh a historical day without relying on a paginated list snapshot."""
+    """Refresh a historical day without relying on a paginated list snapshot.
+
+    Includes what the day settled for, plus the gap left by any owner
+    correction made after that settlement.
+    """
     row = await get(db, Day, day_id)
     await allowed(db, u, row.business_id)
-    return data(row)
+    await auto_close_due_days(db)
+    return await day_payload(db, row)

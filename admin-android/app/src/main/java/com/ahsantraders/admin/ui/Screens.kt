@@ -176,7 +176,7 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
                 DataRow("Sold", "${summary.sold_quantity} ${if (b.type == "LPG") "cylinders" else "kg"}")
                 if (b.type == "CHICKEN" && summary.purchased_count > 0) DataRow("Purchased (birds)", summary.purchased_count.toString())
                 if (b.type == "CHICKEN" && summary.sold_count > 0) DataRow("Sold (birds)", summary.sold_count.toString())
-                if (b.type == "CHICKEN") DataRow("Pota-Kaliji sale", rupees(summary.byproduct_revenue))
+                if (b.type == "CHICKEN") DataRow("Other sale", rupees(summary.byproduct_revenue))
                 else { DataRow("Retail sales", summary.retail_sold); DataRow("Commercial sales", summary.commercial_sold) }
                 DataRow("Operating expenses", rupees(summary.day?.expenses ?: 0))
                 HorizontalDivider(); DataRow("Net profit", rupees(summary.day?.profit ?: 0), Green)
@@ -220,7 +220,12 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
                 builtInKeys = listOf("quick_expense", "ADD_EXPENSE_ICON", "add_expense", "expense_icon"),
                 modifier = Modifier.weight(1f)
             ) { vm.openForm(FormKind.EXPENSE) }
-            if (b.type == "CHICKEN") ActionTile("Pota-Kaliji sale", Icons.Default.Restaurant, Chicken, modifier = Modifier.weight(1f)) { vm.openForm(FormKind.BYPRODUCT) }
+            if (b.type == "CHICKEN") ActionTile(
+                label = "Other sale",
+                icon = Icons.Default.LocalOffer,
+                color = Chicken,
+                modifier = Modifier.weight(1f)
+            ) { vm.openForm(FormKind.BYPRODUCT) }
         }
     }
     LinkRow("Stock", Icons.Default.Inventory2, customImageUrl = stockIconUrl, builtInKeys = listOf("quick_stock", "STOCK_ICON", "stock_icon", "stock")) { vm.go(Page.STOCK) }
@@ -230,6 +235,7 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
         LinkRow("Suppliers", Icons.Default.LocalShipping) { vm.go(Page.SUPPLIERS) }
         summary?.day?.takeIf { it.status == "OPEN" }?.let { day ->
             OutlinedButton(onClick = { confirmClose(day) }, enabled = !s.saving, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Lock, null); Spacer(Modifier.width(8.dp)); Text(tr("Close day")) }
+            Text(tr("Days close automatically at midnight (Pakistan time). You can also close today now."), color = Muted, fontSize = 12.sp)
         }
     }
     LinkRow("Settlement history", Icons.Default.AccountBalance) { vm.go(Page.SETTLEMENTS) }
@@ -264,6 +270,15 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
     if (s.logs.isEmpty() && !s.loading) Empty()
     s.logs.forEach { log -> Panel { Text(log.date, fontWeight = FontWeight.Bold); DataRow("Feed consumed", "${log.feed_kg} kg"); DataRow("Mortality", log.deaths.toString()); DataRow("Expenses", rupees(log.expense)); if (log.note.isNotEmpty()) Text(log.note) } }
 }
+/** User-facing transaction name; the API kind stays BYPRODUCT. */
+fun kindLabel(kind: String): String = when (kind) {
+    "BYPRODUCT" -> "Other sale"
+    "SALE" -> "Sale"
+    "PURCHASE" -> "Purchase"
+    "EXPENSE" -> "Expense"
+    else -> kind.replace('_', ' ')
+}
+
 fun row_price_per_unit(op: Operation): String? {
     if (op.kind == "EXPENSE") return null
     val qty = op.quantity.toBigDecimalOrNull() ?: return null
@@ -275,7 +290,7 @@ fun row_price_per_unit(op: Operation): String? {
 @Composable fun OperationCard(row: Operation, onClick: () -> Unit = {}) {
     Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) { Text(row.kind.replace('_', ' '), color = Green, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)); Text(rupees(row.amount), fontWeight = FontWeight.Bold) }
+            Row(verticalAlignment = Alignment.CenterVertically) { Text(tr(kindLabel(row.kind)), color = Green, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)); Text(rupees(row.amount), fontWeight = FontWeight.Bold) }
             if (row.kind != "EXPENSE") DataRow("Weight", row.quantity)
             row.count?.takeIf { it > 0 }?.let { DataRow("Quantity (birds)", it.toString()) }
             row.category?.takeIf { it.isNotBlank() }?.let { DataRow("Category", it) }
@@ -392,11 +407,24 @@ fun row_price_per_unit(op: Operation): String? {
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row { Text(day.date, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold); Status(day.status) }
                     DataRow("Revenue", rupees(day.revenue)); DataRow("Net profit", rupees(day.profit))
+                    day.variance?.takeIf { it != 0L }?.let { Text("Corrected after settlement — difference ${rupees(it)}", color = Muted, fontSize = 11.sp) }
                 }
             } }; MoreButton(s, vm)
         }
         Page.DAY -> {
-            s.day?.let { day -> Panel { Text(day.date, fontWeight = FontWeight.Bold); Status(day.status); DataRow("Revenue", rupees(day.revenue)); DataRow("Cost of sales", rupees(day.cost)); DataRow("Expenses", rupees(day.expenses)); DataRow("Net profit", rupees(day.profit), Green) }
+            s.day?.let { day ->
+                Panel {
+                    Text(day.date, fontWeight = FontWeight.Bold); Status(day.status)
+                    DataRow("Revenue", rupees(day.revenue)); DataRow("Cost of sales", rupees(day.cost)); DataRow("Expenses", rupees(day.expenses)); DataRow("Net profit", rupees(day.profit), Green)
+                    day.settled_net_profit?.let { DataRow("Profit settled with investors", rupees(it)) }
+                    day.variance?.takeIf { it != 0L }?.let { DataRow("Difference after correction", rupees(it), if (it < 0) Chicken else Green) }
+                }
+                val settled = day.settled_net_profit
+                if (settled != null) {
+                    Text(tr("This date is already settled. A super-admin correction updates these records and this summary only; the payout that was made stays unchanged, and any difference is shown above."), color = Muted, fontSize = 12.sp)
+                } else if (day.status == "OPEN") {
+                    Text(tr("This date closes automatically at midnight (Pakistan time). You can also close it now."), color = Muted, fontSize = 12.sp)
+                }
                 if (day.status == "OPEN") Button(onClick = { confirmClose(day) }, enabled = !s.saving, modifier = Modifier.fillMaxWidth()) { Text(tr("Close day")) }
             }
             if (s.operations.isEmpty() && !s.loading) Empty()
@@ -405,7 +433,7 @@ fun row_price_per_unit(op: Operation): String? {
         Page.OPERATION -> s.operationDetail?.let { od ->
             val op = od.operation
             Panel {
-                Row(verticalAlignment = Alignment.CenterVertically) { Text(op.kind.replace('_', ' '), color = Green, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)); Status(od.day.status) }
+                Row(verticalAlignment = Alignment.CenterVertically) { Text(tr(kindLabel(op.kind)), color = Green, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)); Status(od.day.status) }
                 DataRow("Date", od.day.date)
                 DataRow("Business", od.business.name)
                 if (op.kind != "EXPENSE") DataRow("Weight", op.quantity)
@@ -420,10 +448,15 @@ fun row_price_per_unit(op: Operation): String? {
                 Text("Recorded ${op.created_at}", fontSize = 11.sp, color = Muted)
             }
             Text("Profit is calculated on the total price above, not on the weight or bird count.", color = Muted, fontSize = 12.sp)
-            if (s.user?.role == "SUPERADMIN" && od.day.status == "OPEN") {
+            if (s.user?.role == "SUPERADMIN") {
                 Button(onClick = { vm.openEditOperation() }, enabled = !s.saving, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Edit, null); Spacer(Modifier.width(8.dp)); Text(tr("Edit transaction")) }
+                if (od.day.status == "OPEN") {
+                    Text("This date is still open. Saving a correction updates the date summary immediately.", color = Muted, fontSize = 12.sp)
+                } else {
+                    Text("This date is already settled. Saving a correction rebuilds the date summary; the settled payout is not changed and the difference stays visible on the date.", color = Muted, fontSize = 12.sp)
+                }
             } else {
-                Text("Only the super admin can correct a transaction, and only while its day is still open.", color = Muted, fontSize = 12.sp)
+                Text("Only the super admin can correct a previous-date transaction. Managers can add records to today's open date only.", color = Muted, fontSize = 12.sp)
             }
         }
         Page.SUPPLIERS -> {

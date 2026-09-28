@@ -2707,7 +2707,7 @@
           "Operations"
         ],
         "summary": "Daily Detail",
-        "description": "Refresh a historical day without relying on a paginated list snapshot.",
+        "description": "Refresh a historical day without relying on a paginated list snapshot.\n\nIncludes what the day settled for, plus the gap left by any owner\ncorrection made after that settlement.",
         "operationId": "daily_detail_api_v1_admin_ledger__day_id__get",
         "security": [
           {

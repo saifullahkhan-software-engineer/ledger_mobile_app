@@ -18,9 +18,15 @@ the single source of truth for every record, account and settlement.
 ## Roles
 
 - **SUPERADMIN** (owner) — full authority: manages users, assigns businesses, changes
-  roles, verifies KYC and configures the mobile screen icons.
-- **ADMIN** (manager) — runs only the businesses assigned to them.
+  roles, verifies KYC, configures the mobile screen icons and is the only role that can
+  correct a previous date's transactions.
+- **ADMIN** (manager) — runs only the businesses assigned to them; can add today's records and close the current date, but cannot correct an older one.
 - **INVESTOR** — buys shares and receives payouts (no client app yet).
+
+Business dates (Asia/Karachi) close and settle **automatically when they end**
+(midnight by default, `DAY_CLOSE_HOUR` to shift it), so no one has to close yesterday
+by hand. After that, a super-admin correction rebuilds that date's summary — the payout
+already distributed is never rewritten. See `backend/README.md` §7.
 
 Every role boundary is enforced **server-side** (`Depends(root)` / `Depends(admin)` /
 `Depends(investor)` in `backend/app/security.py`), and the apps additionally hide
@@ -61,7 +67,7 @@ client's API contract against the live OpenAPI schema:
 
 ```bash
 cd backend
-python -m pytest -q     # 41 passed, 1 PostgreSQL-only skipped (SQLite; PostgreSQL in CI)
+python -m pytest -q     # 46 passed, 1 PostgreSQL-only skipped (SQLite; PostgreSQL in CI)
 ```
 
 ## Before real-money use

@@ -1,7 +1,9 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package com.ahsantraders.admin.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -231,6 +233,7 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
             ) { vm.openForm(FormKind.BYPRODUCT) }
         }
     }
+    if (b.type != "BROILER") LinkRow("Daily summary", Icons.Default.CalendarMonth, businessDate()) { vm.openDayAt(businessDate()) }
     LinkRow("Stock", Icons.Default.Inventory2, customImageUrl = stockIconUrl, builtInKeys = listOf("quick_stock", "STOCK_ICON", "stock_icon", "stock")) { vm.go(Page.STOCK) }
     if (b.type != "BROILER") {
         LinkRow("Transaction history", Icons.Default.ReceiptLong) { vm.go(Page.LEDGER) }
@@ -481,6 +484,58 @@ fun transactionDetail(row: Operation, unit: String): String {
         Text(rupees(value), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Ink, textAlign = TextAlign.End, modifier = Modifier.width(88.dp))
     }
 }
+/**
+ * Day stepper: browse the shop day by day. Says what kind of date it is
+ * (today / closed / no records / not started) using the server's classification,
+ * stops at the first recorded date and at today, and allows a direct jump.
+ */
+@Composable fun DayStepper(s: AdminState, vm: AdminViewModel, onPickDate: () -> Unit) {
+    val today = businessDate()
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        IconButton(onClick = { vm.stepDay(-1) }, enabled = !s.saving && vm.dayCanGoBack()) { Icon(Icons.Default.ChevronLeft, tr("Previous day")) }
+        Row(
+            Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).clickable { onPickDate() }.padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(Icons.Default.CalendarMonth, null, tint = Green, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(s.dayDate, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            if (s.dayDate == today) Text("  ${tr("Today")}", color = Muted, fontSize = 12.sp)
+        }
+        IconButton(onClick = { vm.stepDay(1) }, enabled = !s.saving && vm.dayCanGoForward()) { Icon(Icons.Default.ChevronRight, tr("Next day")) }
+    }
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(selected = s.dayDate == today, onClick = { vm.openDayAt(today) }, label = { Text(tr("Today")) }, enabled = !s.saving)
+        FilterChip(selected = s.dayDate == LocalDate.parse(today).minusDays(1).toString(), onClick = { vm.openDayAt(LocalDate.parse(today).minusDays(1).toString()) }, label = { Text(tr("Yesterday")) }, enabled = !s.saving)
+        FilterChip(selected = false, onClick = onPickDate, label = { Text(tr("Pick a date")) }, enabled = !s.saving)
+    }
+}
+
+/** Calendar with the same bounds as the stepper: first recorded date → today. */
+@Composable fun DayPickerDialog(initial: String, firstDate: String?, lastDate: String, onDismiss: () -> Unit, onPick: (String) -> Unit) {
+    fun toMillis(date: String) = LocalDate.parse(date).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+    fun toDate(millis: Long) = java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+    val last = LocalDate.parse(lastDate)
+    val first = firstDate?.let { LocalDate.parse(it) }
+    val state = rememberDatePickerState(
+        initialSelectedDateMillis = runCatching { toMillis(initial) }.getOrDefault(toMillis(lastDate)),
+        selectableDates = object : SelectableDates {
+            override fun isSelectableDate(utcTimeMillis: Long): Boolean {
+                val date = toDate(utcTimeMillis)
+                return !date.isAfter(last) && (first == null || !date.isBefore(first))
+            }
+            override fun isSelectableYear(year: Int): Boolean = year <= last.year && (first == null || year >= first.year)
+        }
+    )
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = { state.selectedDateMillis?.let { onPick(toDate(it).toString()) }; onDismiss() }) { Text(tr("OK")) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Cancel")) } }
+    ) { DatePicker(state = state) }
+}
+
 /** Kind and date-range filters of the transaction history. */
 @Composable fun HistoryFilters(s: AdminState, vm: AdminViewModel) {
     val today = LocalDate.parse(businessDate())
@@ -550,23 +605,31 @@ fun transactionDetail(row: Operation, unit: String): String {
             MoreButton(s, vm)
         }
         Page.DAY -> {
-            s.day?.let { day ->
+            var pickDay by remember { mutableStateOf(false) }
+            DayStepper(s, vm) { pickDay = true }
+            val day = s.day
+            if (day != null) {
                 Panel {
-                    Text(day.date, fontWeight = FontWeight.Bold); Status(day.status)
+                    Status(day.status)
                     DataRow("Revenue", rupees(day.revenue)); DataRow("Cost of sales", rupees(day.cost)); DataRow("Expenses", rupees(day.expenses)); DataRow("Net profit", rupees(day.profit), Green)
                     day.settled_net_profit?.let { DataRow("Profit settled with investors", rupees(it)) }
                     day.variance?.takeIf { it != 0L }?.let { DataRow("Difference after correction", rupees(it), if (it < 0) Chicken else Green) }
                 }
-                val settled = day.settled_net_profit
-                if (settled != null) {
+                if (day.settled_net_profit != null) {
                     Text(tr("This date is already settled. A super-admin correction updates these records and this summary only; the payout that was made stays unchanged, and any difference is shown above."), color = Muted, fontSize = 12.sp)
                 } else if (day.status == "OPEN") {
                     Text(tr("This date closes automatically at midnight (Pakistan time). You can also close it now."), color = Muted, fontSize = 12.sp)
                 }
                 if (day.status == "OPEN") Button(onClick = { confirmClose(day) }, enabled = !s.saving, modifier = Modifier.fillMaxWidth()) { Text(tr("Close day")) }
+            } else if (s.dayRelation == "FUTURE") {
+                Panel { DataRow("Date", s.dayDate); Text(tr("This date has not started. Sales, purchases and expenses can only be recorded on the day itself."), color = Muted, fontSize = 12.sp) }
+            } else {
+                Panel { DataRow("Date", s.dayDate); Text(tr("No records for this date."), color = Muted, fontSize = 12.sp) }
             }
-            if (s.operations.isEmpty() && !s.loading) Empty()
-            s.operations.forEach { OperationCard(it) { vm.openOperation(it, s.page) } }
+            val unit = if (s.business?.type == "LPG") "cylinders" else "kg"
+            if (s.operations.isEmpty() && !s.loading) Empty("No transactions on this date")
+            s.operations.forEach { row -> TransactionRow(row, unit) { vm.openOperation(row, s.page) } }
+            if (pickDay) DayPickerDialog(s.dayDate, s.dayFirstDate, s.dayLastDate ?: businessDate(), { pickDay = false }) { vm.openDayAt(it) }
         }
         Page.OPERATION -> s.operationDetail?.let { od ->
             val op = od.operation

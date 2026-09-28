@@ -12,7 +12,7 @@ interface AdminApi {
     @POST("api/v1/auth/logout") suspend fun logout(): JsonObject
     @GET("api/v1/admin/businesses") suspend fun businesses(): List<Business>
     @GET("api/v1/admin/dashboard") suspend fun dashboard(): Report
-    @GET("api/v1/admin/businesses/{id}/summary") suspend fun summary(@Path("id") id: String): Summary
+    @GET("api/v1/admin/businesses/{id}/summary") suspend fun summary(@Path("id") id: String, @Query("on") on: String? = null): Summary
     @GET("api/v1/admin/stock") suspend fun stock(@Query("business_id") id: String): Stock
     @GET("api/v1/admin/ledger/daily") suspend fun days(@Query("business_id") id: String, @Query("offset") offset: Int, @Query("limit") limit: Int = 50): List<Day>
     @GET("api/v1/admin/ledger/{id}") suspend fun day(@Path("id") id: String): Day

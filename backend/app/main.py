@@ -1155,8 +1155,14 @@ async def business_summary(
     # A day whose business date has ended is already closed and settled.
     await auto_close_due_days(db)
     on = on or today()
+    current = today()
+    # The server classifies the date so a day stepper never trusts the device clock.
+    relation = "TODAY" if on == current else ("FUTURE" if on > current else "PAST")
     day_result = await db.execute(select(Day).where(Day.business_id == b.id, Day.date == on))
     day = day_result.scalar_one_or_none()
+    first_date = await db.scalar(
+        select(func.min(Day.date)).where(Day.business_id == b.id)
+    )
     ops = []
     if day:
         ops_result = await db.execute(select(Operation).where(Operation.day_id == day.id))
@@ -1174,9 +1180,16 @@ async def business_summary(
     )
     logs = logs_result.scalars().all()
     
+    # What the date settled for, so a corrected closed day reads correctly here
+    # too instead of only on the day list.
+    settled = await day_payload(db, day) if day else {}
     return {
         "business": data(b),
         "date": on,
+        "relation": relation,
+        "bounds": {"first_date": first_date, "last_date": current},
+        "settled_net_profit": settled.get("settled_net_profit"),
+        "variance": settled.get("variance"),
         "day": data(day) if day else None,
         "purchased_quantity": sum(r.quantity for r in ops if r.kind == "PURCHASE"),
         "sold_quantity": sum(r.quantity for r in ops if r.kind == "SALE"),

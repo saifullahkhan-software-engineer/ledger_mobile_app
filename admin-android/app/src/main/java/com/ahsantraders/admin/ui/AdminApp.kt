@@ -253,7 +253,7 @@ import kotlinx.coroutines.launch
                 ) { padding ->
                     Column(Modifier.padding(padding).fillMaxSize()) {
                         if (s.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        key(s.page, s.business?.id, s.draft?.kind, s.batch?.id, s.day?.id, s.supplier?.id) {
+                        key(s.page, s.business?.id, s.draft?.kind, s.batch?.id, s.day?.id, s.dayDate, s.supplier?.id) {
                             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 s.error?.let { Banner(it, true, vm::dismissError); if (s.draft == null) OutlinedButton(onClick = { vm.refresh() }, enabled = !s.loading) { Text(tr("Try again")) } }
                                 s.notice?.let { Banner(it, false, vm::dismissNotice) }

@@ -22,6 +22,10 @@ data class AdminState(
     val dashboard: Report? = null, val report: Report? = null, val summary: Summary? = null,
     val stock: Stock? = null, val days: List<Day> = emptyList(), val day: Day? = null,
     val operationId: String? = null, val operationDetail: OperationDetail? = null, val operationReturn: Page = Page.LEDGER,
+    // Day view is addressed by date, not by day row: a date always exists, a
+    // ledger row may not (gap, or a date that has not started).
+    val dayDate: String = businessDate(), val dayRelation: String = "TODAY",
+    val dayFirstDate: String? = null, val dayLastDate: String? = businessDate(),
     val suppliers: List<Supplier> = emptyList(), val supplier: Supplier? = null,
     val operations: List<Operation> = emptyList(), val batches: List<Batch> = emptyList(),
     val batch: Batch? = null, val logs: List<BatchLog> = emptyList(), val settlements: List<Settlement> = emptyList(),
@@ -134,7 +138,15 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
             }
             Page.BUSINESS -> {
                 val summary = api.summary(id)
-                updateState { it.copy(summary = summary, business = summary.business) }
+                updateState {
+                    it.copy(
+                        summary = summary, business = summary.business,
+                        dayDate = businessDate(),
+                        dayRelation = summary.relation,
+                        dayFirstDate = summary.bounds?.first_date,
+                        dayLastDate = summary.bounds?.last_date ?: businessDate()
+                    )
+                }
             }
             Page.STOCK -> { val result = api.stock(id); updateState { it.copy(stock = result) } }
             Page.LEDGER -> {
@@ -146,7 +158,21 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
                     updateState { it.copy(operations = (if (append) s.operations else emptyList()) + rows, more = rows.size == 50) }
                 }
             }
-            Page.DAY -> { val day = api.day(requireNotNull(s.day).id); val result = api.operations(day.id); updateState { it.copy(day = day, operations = result) } }
+            Page.DAY -> {
+                val summary = api.summary(id, s.dayDate)
+                val rows = api.operationsFeed(id, start = s.dayDate, end = s.dayDate, offset = 0, limit = 200)
+                updateState {
+                    it.copy(
+                        summary = summary,
+                        // settled/variance live at the top level of the summary response.
+                        day = summary.day?.copy(settled_net_profit = summary.settled_net_profit, variance = summary.variance),
+                        dayRelation = summary.relation,
+                        dayFirstDate = summary.bounds?.first_date,
+                        dayLastDate = summary.bounds?.last_date ?: businessDate(),
+                        operations = rows
+                    )
+                }
+            }
             Page.OPERATION -> { val detail = api.operation(requireNotNull(s.operationId)); updateState { it.copy(operationDetail = detail) } }
             Page.SUPPLIERS -> { val result = api.suppliers(id); updateState { it.copy(suppliers = result) } }
             Page.BILLS -> {
@@ -189,9 +215,15 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
     fun go(page: Page, business: Business? = state.value.business) {
         if (state.value.saving) return
         readJob?.cancel()
-        updateState { it.copy(page = page, business = business, draft = null, error = null, summary = null, stock = null,
-            operations = emptyList(), recent = emptyList(), logs = emptyList(), days = emptyList(), suppliers = emptyList(), batches = emptyList(), settlements = emptyList(), report = null, more = false,
-            users = emptyList(), userDetail = null, userDraft = null, operationDetail = null) }
+        updateState { current ->
+            val sameBusiness = business?.id == current.business?.id
+            current.copy(page = page, business = business, draft = null, error = null, summary = null, stock = null,
+                operations = emptyList(), recent = emptyList(), logs = emptyList(), days = emptyList(), suppliers = emptyList(), batches = emptyList(), settlements = emptyList(), report = null, more = false,
+                users = emptyList(), userDetail = null, userDraft = null, operationDetail = null,
+                dayDate = if (sameBusiness) current.dayDate else businessDate(),
+                dayFirstDate = if (sameBusiness) current.dayFirstDate else null,
+                dayLastDate = businessDate())
+        }
         refresh()
     }
     fun openOperation(row: Operation, from: Page) {
@@ -263,7 +295,33 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
         updateState { it.copy(historyView = "TRANSACTIONS", historyKind = kind, historyStart = null, historyEnd = null) }
         go(Page.LEDGER)
     }
-    fun openDay(day: Day) { updateState { it.copy(day = day) }; go(Page.DAY) }
+    /** Open the day view of one date (today, a past date, even a date with no records). */
+    fun openDayAt(date: String) {
+        if (state.value.saving) return
+        updateState { it.copy(dayDate = date, day = null) }
+        go(Page.DAY)
+    }
+    fun openDay(day: Day) = openDayAt(day.date)
+    /** Previous/next day. Stops at the first recorded date and at today. */
+    fun stepDay(days: Long) {
+        if (state.value.saving) return
+        val target = try { LocalDate.parse(state.value.dayDate).plusDays(days) } catch (_: Exception) { return }
+        val last = state.value.dayLastDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        if (last != null && target.isAfter(last)) return
+        state.value.dayFirstDate?.let {
+            val first = runCatching { LocalDate.parse(it) }.getOrNull()
+            if (first != null && target.isBefore(first)) return
+        }
+        openDayAt(target.toString())
+    }
+    fun dayCanGoBack(): Boolean {
+        val first = state.value.dayFirstDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return false
+        return runCatching { LocalDate.parse(state.value.dayDate).isAfter(first) }.getOrDefault(false)
+    }
+    fun dayCanGoForward(): Boolean {
+        val last = state.value.dayLastDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return false
+        return runCatching { LocalDate.parse(state.value.dayDate).isBefore(last) }.getOrDefault(false)
+    }
     fun openSupplier(supplier: Supplier) { updateState { it.copy(supplier = supplier) }; go(Page.BILLS) }
     fun openBatch(batch: Batch) { updateState { it.copy(batch = batch) }; go(Page.BATCH) }
     fun isSuperAdmin(): Boolean = state.value.user?.role == "SUPERADMIN"

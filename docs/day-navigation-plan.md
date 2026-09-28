@@ -1,5 +1,13 @@
 # Day navigation plan — previous / next day sales, closed days and future dates
 
+## 0. Status — implemented (recommended defaults)
+Phases 1–3 of §5 are implemented on this branch; the decisions in §6 were not
+answered, so the recommended defaults were used and each is a one-line change:
+- next arrow **disabled at today**; future dates still answer 200 with
+  `relation: "FUTURE"` for any client that asks for one;
+- previous arrow **stops at the first recorded date** (`bounds.first_date`);
+- **broiler keeps the Batches screen** (no stepper) — option 2 of §3 is still open.
+
 ## 1. Answer: what exists today, what does not
 
 **Implemented**
@@ -30,6 +38,17 @@ Verified behaviour, one business with a closed day on 2026-09-27:
 | 2026-09-27 | 200 | status `CLOSED`, revenue 25000, settled fields **absent** | past, settled by the auto-close |
 | 2026-09-28 | 200 | status `OPEN` | today |
 | 2026-09-29 | 200 | `null`, zeros | **future — indistinguishable from "no records"** |
+
+After this change the same calls answer:
+
+| `?on=` | `relation` | `day` | `settled_net_profit` |
+|---|---|---|---|
+| 2026-09-26 (gap) | `PAST` | `null` | `null` |
+| 2026-09-27 | `PAST` | status `CLOSED` | 25000, `variance` 0 |
+| 2026-09-28 | `TODAY` | status `OPEN` | `null` |
+| 2026-09-29 | `FUTURE` | `null` | `null` |
+
+`bounds` is `{first_date: "2026-09-27", last_date: "2026-09-28"}` in every response.
 
 ## 2. Design
 

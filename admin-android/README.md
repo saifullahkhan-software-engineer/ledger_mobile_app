@@ -14,6 +14,7 @@ An Admin-first implementation of the supplied screen reference, using Kotlin, Je
 - Stock and carrying cost; transaction history that lists **single transactions** (All / Sale / Purchase / Expense / Other sale chips plus Latest / Today / 7 days / This month ranges) with the day overview on a "Days" tab, and operation detail.
 - "Last 5 Sales", "Last 5 Purchases" and "Recent Expenses" tables under the matching entry forms, each with **View all** that opens the history filtered to that type.
 - Close Day confirmation and investor-distribution feedback. A business date also closes and settles itself when it ends (midnight Pakistan time), so a manager never has to close yesterday by hand.
+- Day screen is addressed by **date** rather than by ledger row, with a `‹ date ›` stepper, Today / Yesterday chips and a bounded calendar picker: a closed past date shows what it settled (owner can still correct it), a date with no records and a date that has not started each get their own empty state, `‹` stops at the first recorded date and `›` stops at today.
 - Broiler funding-stage batch creation, start confirmation, feed/mortality/expense logs, harvest confirmation and historical batch detail (including harvested batches).
 - Daily/last-seven-days/month-to-date reports, custom dates, per-business filtering and positive-profit chart. Losses remain included in the report table and totals.
 - Settlement history, profile name/language editing, password change and logout.
@@ -236,7 +237,7 @@ The database stores the image bytes themselves (BYTEA) plus a short serving URL 
 
 ## Verification status — important
 
-- Backend suite, including database-image upload/serving/migration tests, midnight auto-close/settlement, owner corrections and Retrofit path/query/header contract checks: **51 passed, 1 PostgreSQL-only test skipped** in this sandbox (SQLite; the PostgreSQL run happens in CI and has not been observed).
+- Backend suite, including database-image upload/serving/migration tests, midnight auto-close/settlement, owner corrections and Retrofit path/query/header contract checks: **55 passed, 1 PostgreSQL-only test skipped** in this sandbox (SQLite; the PostgreSQL run happens in CI and has not been observed).
 - All Kotlin files passed structural checks; these checks do not establish compilation or UI correctness.
 - Native source includes JVM test methods for exact money, quantity limits, Unicode, batch rules, server-URL resolution (including `/api/v1/images/…` relative URLs), retry hashing and Retrofit requests/deserialization.
 - **Android Gradle build, JVM tests, lint, emulator UI and device networking have not been executed here.** The sandbox has no JDK/Android SDK and the official tool-download attempts failed. No APK is being claimed as built or verified.

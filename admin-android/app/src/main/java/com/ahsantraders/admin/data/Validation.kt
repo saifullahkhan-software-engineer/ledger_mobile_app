@@ -9,8 +9,11 @@ import java.time.ZoneId
 import java.util.Locale
 
 fun businessDate(): String = LocalDate.now(ZoneId.of("Asia/Karachi")).toString()
-fun rupees(paisa: Long): String = "Rs. " + NumberFormat.getNumberInstance(Locale.US).apply {
-    minimumFractionDigits = 2; maximumFractionDigits = 2
+fun rupees(paisa: Long): String = "Rs. " + amount(paisa)
+
+/** Table amount: whole rupees stay whole (3,500), paisa keeps two places (1,250.50). */
+fun amount(paisa: Long): String = NumberFormat.getNumberInstance(Locale.US).apply {
+    minimumFractionDigits = if (paisa % 100L == 0L) 0 else 2; maximumFractionDigits = 2
 }.format(BigDecimal.valueOf(paisa, 2))
 
 /** Canonical display order: Chicken → LPG (Gas) → Broiler (Poultry). */
@@ -106,7 +109,9 @@ fun formBody(draft: Draft, business: Business?, batch: Batch?, today: String = b
                 require(date() == today) { "Daily records must use today's Pakistan date" }
                 addProperty("business_id", b.id); addProperty("date", date()); addProperty("kind", draft.kind.name)
                 addProperty("amount", moneyInput(value("amount")))
-                if (draft.kind == FormKind.BYPRODUCT) addProperty("quantity", quantityInput(value("quantity"), true, false))
+                // "Other sale" is any extra income: weight is optional, the
+                // amount is always the total received.
+                if (draft.kind == FormKind.BYPRODUCT) addProperty("quantity", if (value("quantity").isBlank()) "0" else quantityInput(value("quantity"), true, false))
                 if (draft.kind == FormKind.EXPENSE && value("category").isNotBlank()) {
                     require(value("category").length <= 50) { "Category is too long" }
                     addProperty("category", value("category").trim())
@@ -117,7 +122,7 @@ fun formBody(draft: Draft, business: Business?, batch: Batch?, today: String = b
             FormKind.EDIT_OPERATION -> {
                 val kind = value("kind")
                 require(kind in listOf("PURCHASE", "SALE", "BYPRODUCT", "EXPENSE")) { "Unknown transaction kind" }
-                if (kind != "EXPENSE") addProperty("quantity", quantityInput(value("quantity"), kind == "BYPRODUCT", value("lpg") == "1"))
+                if (kind != "EXPENSE") addProperty("quantity", if (kind == "BYPRODUCT" && value("quantity").isBlank()) "0" else quantityInput(value("quantity"), kind == "BYPRODUCT", value("lpg") == "1"))
                 if (kind == "PURCHASE" || kind == "SALE") {
                     addProperty("amount", totalInput(value("quantity"), value("price"), value("lpg") == "1"))
                     addProperty("count", if (value("count").isNotBlank()) count("count", true) else 0)

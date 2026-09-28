@@ -229,9 +229,9 @@ import kotlinx.coroutines.launch
                             )
                             NavigationBarItem(
                                 selected = s.page == Page.LEDGER || s.page == Page.DAY,
-                                onClick = { chooseKind = FormKind.SALE },
-                                icon = { Icon(Icons.Default.PointOfSale, null) },
-                                label = { Text(tr("Sales")) },
+                                onClick = { vm.go(Page.LEDGER) },
+                                icon = { Icon(Icons.Default.ReceiptLong, null) },
+                                label = { Text(tr("History")) },
                                 enabled = !s.saving
                             )
                             NavigationBarItem(
@@ -253,7 +253,7 @@ import kotlinx.coroutines.launch
                 ) { padding ->
                     Column(Modifier.padding(padding).fillMaxSize()) {
                         if (s.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        key(s.page, s.business?.id, s.draft?.kind, s.batch?.id, s.day?.id, s.supplier?.id) {
+                        key(s.page, s.business?.id, s.draft?.kind, s.batch?.id, s.day?.id, s.dayDate, s.supplier?.id) {
                             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 s.error?.let { Banner(it, true, vm::dismissError); if (s.draft == null) OutlinedButton(onClick = { vm.refresh() }, enabled = !s.loading) { Text(tr("Try again")) } }
                                 s.notice?.let { Banner(it, false, vm::dismissNotice) }
@@ -296,7 +296,7 @@ import kotlinx.coroutines.launch
             if (kind == FormKind.EXPENSE) Text("Broiler expenses are recorded inside an active batch.", style = MaterialTheme.typography.bodySmall)
         }
     }, confirmButton = { TextButton(onClick = { chooseKind = null }) { Text(tr("Cancel")) } }) }
-    closeDay?.let { day -> ConfirmDialog("Close day", "Close ${day.date}? Net profit is ${rupees(day.profit)}. This finalizes the records and distributes eligible investor profit immediately. You cannot reopen this day in the app.", { closeDay = null }) { closeDay = null; vm.closeDay(day) } }
+    closeDay?.let { day -> ConfirmDialog("Close day", "Close ${day.date} now? Net profit is ${rupees(day.profit)}. Days close by themselves at midnight (Pakistan time); closing now finalizes the records and distributes eligible investor profit immediately. Afterwards only the super admin can correct this date's transactions, and a settled payout is never changed.", { closeDay = null }) { closeDay = null; vm.closeDay(day) } }
     if (startBatch) ConfirmDialog("Start batch", "Starting this batch closes its funding window and locks investor ownership. Continue?", { startBatch = false }) { startBatch = false; vm.startBatch() }
     if (logout) ConfirmDialog("Sign out", "Sign out and revoke existing sessions? If offline, only this device can be signed out.", { logout = false }) { logout = false; vm.logout(); onLogout?.invoke() }
     if (discard) ConfirmDialog("Cancel", "Discard this form? Unsaved fields will be lost. If a previous submission timed out, check the records before creating a new transaction.", { discard = false }) { discard = false; vm.back() }

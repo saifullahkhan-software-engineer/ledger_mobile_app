@@ -9,13 +9,16 @@ An Admin-first implementation of the supplied screen reference, using Kotlin, Je
 - Backend address baked in at build time (`APP_SERVER_URL` environment variable or `appServerUrl` in `gradle.properties` → `BuildConfig.SERVER_URL`); the sign-in screen only asks for phone and password. Login for ADMIN/SUPERADMIN accounts.
 - Dashboard with real sales/profit totals and yesterday comparisons. No fabricated sample metrics.
 - Assigned-business drawer and red Chicken, green Broiler and blue LPG module cards.
-- Chicken/LPG purchase, sale, expense and byproduct forms; LPG retail/commercial channel selection.
+- Chicken/LPG purchase, sale, expense and "Other sale" (byproduct) forms; LPG retail/commercial channel selection.
 - Supplier creation and purchase history; optional supplier on a purchase.
-- Stock and carrying cost; dated transaction history and operation detail.
-- Close Day confirmation and investor-distribution feedback.
+- Stock and carrying cost; transaction history that lists **single transactions** (All / Sale / Purchase / Expense / Other sale chips plus Latest / Today / 7 days / This month ranges) with the day overview on a "Days" tab, and operation detail.
+- "Last 5 Sales", "Last 5 Purchases" and "Recent Expenses" tables under the matching entry forms, each with **View all** that opens the history filtered to that type.
+- Close Day confirmation and investor-distribution feedback. A business date also closes and settles itself when it ends (midnight Pakistan time), so a manager never has to close yesterday by hand.
+- Day screen is addressed by **date** rather than by ledger row, with a `‹ date ›` stepper, Today / Yesterday chips and a bounded calendar picker: a closed past date shows what it settled (owner can still correct it), a date with no records and a date that has not started each get their own empty state, `‹` stops at the first recorded date and `›` stops at today.
 - Broiler funding-stage batch creation, start confirmation, feed/mortality/expense logs, harvest confirmation and historical batch detail (including harvested batches).
 - Daily/last-seven-days/month-to-date reports, custom dates, per-business filtering and positive-profit chart. Losses remain included in the report table and totals.
 - Settlement history, profile name/language editing, password change and logout.
+- Owner-only corrections: the super admin can correct a transaction on an open date or on a previous, already settled date. The date summary is rebuilt, the payout already made is never changed, and the difference is shown on the date.
 - Core navigation/form labels in English/Urdu, RTL layout, Unicode user input preserved. Supporting explanations, server errors and some confirmations remain English.
 - Loading, empty, validation, connection-error and expired-session states. User-triggered refresh and paginated history lists.
 - Keystore-encrypted session token. No stored passwords, network payload logs, hardcoded credentials or demo-data fallback.
@@ -168,9 +171,9 @@ Use a development database, not real financial records.
 2. Add sale: quantity **5 kg**, amount **Rs 1,000**.
 3. Add expense: **Rs 100**.
 4. Verify remaining stock **5 kg**, inventory cost **Rs 500**, provisional net profit **Rs 400**.
-5. Close Day; review the irreversible-action confirmation and distribution result.
+5. Close Day early, or leave the app and let the date close itself at midnight Pakistan time; review the distribution result.
 6. Open Transaction history → that date. Confirm CLOSED and inspect the operations.
-7. Verify another write for the closed date is rejected.
+7. Verify another write for the closed date is rejected, and that as the owner you can still correct an operation on that closed date (its summary changes, the settled payout does not).
 
 If there are no investor holdings, distribution is zero and the pool is retained. To test a payout, buy shares with an investor through the backend/Postman **before the first daily operation**. The Admin app cannot buy shares or fund investor wallets.
 
@@ -228,12 +231,13 @@ No Hilt, code generation, WebView or bundled mock backend. The financial source 
 - `PUT /api/v1/admin/icons/{key}` — save a screen-icon URL (pass an empty `image_url` to revert to the default icon). When the URL is an `/api/v1/images/{id}` reference, the icon row is associated with that image asset.
 - `GET /api/v1/admin/batches?business_id=...&offset=...&limit=...` — includes historical harvested batches.
 - `GET /api/v1/admin/ledger/{day_id}` — refreshes a specific day including current closure status.
+- `GET /api/v1/admin/operations?business_id=…&kind=…&start=…&end=…&offset=…&limit=…` — individual transactions of one business, newest business date first, each row carrying its business `date`; `kind` serves the last-5 tables and the history type chips. Backed by a new `operations.day_id` index that legacy databases gain automatically.
 
 The database stores the image bytes themselves (BYTEA) plus a short serving URL on each icon/business row; icon lists and the mobile configuration only ever carry URLs, never base64/binary content. Files previously uploaded under `backend/uploads/` continue to be served from the legacy static mount until you run `python -m app.manage migrate-images` and remove them manually (see `../backend/README.md`).
 
 ## Verification status — important
 
-- Backend suite, including database-image upload/serving/migration tests and Retrofit path/query/header contract checks: **41 passed, 1 PostgreSQL-only test skipped** in this sandbox (SQLite; the PostgreSQL run happens in CI and has not been observed).
+- Backend suite, including database-image upload/serving/migration tests, midnight auto-close/settlement, owner corrections and Retrofit path/query/header contract checks: **55 passed, 1 PostgreSQL-only test skipped** in this sandbox (SQLite; the PostgreSQL run happens in CI and has not been observed).
 - All Kotlin files passed structural checks; these checks do not establish compilation or UI correctness.
 - Native source includes JVM test methods for exact money, quantity limits, Unicode, batch rules, server-URL resolution (including `/api/v1/images/…` relative URLs), retry hashing and Retrofit requests/deserialization.
 - **Android Gradle build, JVM tests, lint, emulator UI and device networking have not been executed here.** The sandbox has no JDK/Android SDK and the official tool-download attempts failed. No APK is being claimed as built or verified.
@@ -243,4 +247,4 @@ The database stores the image bytes themselves (BYTEA) plus a short serving URL 
 
 This is the Admin app only. An Investor Android app is still separate future work. Real OTP, actual KYC evidence review (the app sets the verification flag for development), gateway transfers, push notifications, customer receivables, supplier payable balances, share trading and production compliance remain outside this client delivery.
 
-Close/harvest have confirmation dialogs but no reopen/reversal workflow because the backend does not provide one. Daily losses, unsold equity and batch funding follow the policies documented in `backend/README.md`; those policies require approval before real-money use.
+Close/harvest have confirmation dialogs. A closed date is never reopened; the owner corrects a single transaction instead, and a payout that already settled is not rewritten by that correction. Daily losses, unsold equity and batch funding follow the policies documented in `backend/README.md`; those policies require approval before real-money use.

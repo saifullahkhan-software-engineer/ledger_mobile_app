@@ -79,9 +79,13 @@ from .security import (
 )
 from .services import (
     allowed,
+    auto_close_due_days,
     business_ids,
     buy,
+    close_day_record,
     data,
+    day_payload,
+    day_payloads,
     edit_operation,
     fail,
     get,
@@ -565,15 +569,16 @@ async def supplier_bills(
     s = await get(db, Supplier, supplier_id)
     await allowed(db, u, s.business_id)
     result = await db.execute(
-        select(Operation)
+        select(Operation, Day.date)
+        .join(Day, Operation.day_id == Day.id)
         .where(Operation.supplier_id == s.id, Operation.kind == "PURCHASE")
-        .order_by(Operation.created_at.desc(), Operation.id)
+        .order_by(Day.date.desc(), Operation.created_at.desc(), Operation.id)
         .offset(offset)
         .limit(limit)
     )
     return [
-        data(r)
-        for r in result.scalars()
+        {**data(row), "date": recorded_on}
+        for row, recorded_on in result.all()
     ]
 
 
@@ -614,6 +619,8 @@ async def daily_list(
     limit: int = Query(50, ge=1, le=200),
 ):
     await allowed(db, u, business_id)
+    # Report the midnight rule immediately: a finished day is already settled.
+    await auto_close_due_days(db)
     result = await db.execute(
         select(Day)
         .where(Day.business_id == business_id)
@@ -621,10 +628,7 @@ async def daily_list(
         .offset(offset)
         .limit(limit)
     )
-    return [
-        data(d)
-        for d in result.scalars()
-    ]
+    return await day_payloads(db, list(result.scalars()))
 
 
 @app.get("/api/v1/admin/ledger/{day_id}/operations", tags=["Operations"])
@@ -639,6 +643,50 @@ async def operations(day_id: str, db: DB, u=Depends(admin)):
     return [
         data(r)
         for r in result.scalars()
+    ]
+
+
+@app.get("/api/v1/admin/operations", tags=["Operations"])
+async def operation_feed(
+    business_id: str,
+    db: DB,
+    u=Depends(admin),
+    kind: str | None = Query(None, pattern="^(PURCHASE|SALE|BYPRODUCT|EXPENSE)$"),
+    start: date | None = None,
+    end: date | None = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Individual transactions of one business, newest business date first.
+
+    Powers the app's transaction history, the per-form "last 5" tables and any
+    kind-filtered list. Rows carry the business ``date`` (from the day) so a list
+    of transactions does not need the day list to render a date column.
+    """
+    await allowed(db, u, business_id)
+    if start and end and end < start:
+        fail("Invalid date range", 422)
+    query = (
+        select(Operation, Day.date)
+        .join(Day, Operation.day_id == Day.id)
+        .where(Day.business_id == business_id)
+    )
+    if kind:
+        query = query.where(Operation.kind == kind)
+    if start:
+        query = query.where(Day.date >= start)
+    if end:
+        query = query.where(Day.date <= end)
+    result = await db.execute(
+        query.order_by(
+            Day.date.desc(), Operation.created_at.desc(), Operation.id
+        )
+        .offset(offset)
+        .limit(limit)
+    )
+    return [
+        {**data(row), "date": recorded_on}
+        for row, recorded_on in result.all()
     ]
 
 
@@ -665,14 +713,11 @@ async def close_day(p: CloseDay, db: DB, key: Key, u=Depends(admin)):
     async def action():
         d = await get(db, Day, p.day_id)
         b = await allowed(db, u, d.business_id)
-        if d.status != "OPEN":
-            fail("Day already settled")
-        d.net_profit = d.revenue - d.cost - d.expenses
-        d.status = "CLOSED"
-        result = await settle(
-            db, b, f"day:{d.id}", d.net_profit, b.total_shares, await owned(db, b.id)
-        )
-        return {"day": data(d), "settlement": result}
+        # Days past their business date close themselves first (midnight rule),
+        # so an operator closing yesterday by hand gets the same result as the
+        # automatic sweep instead of a duplicate settlement.
+        await auto_close_due_days(db, b.id)
+        return await close_day_record(db, b, d)
 
     return await once(db, u, "close", key, p.model_dump(), action)
 
@@ -806,6 +851,8 @@ async def reports(
     if business_id:
         await allowed(db, u, business_id)
         ids = [business_id]
+    # Finished days settle before their totals are reported (midnight rule).
+    await auto_close_due_days(db)
     rows = []
     result = await db.execute(select(Business).where(Business.id.in_(ids)))
     for b in result.scalars():
@@ -1105,9 +1152,17 @@ async def business_summary(
     business_id: str, db: DB, u=Depends(admin), on: date | None = None
 ):
     b = await allowed(db, u, business_id)
+    # A day whose business date has ended is already closed and settled.
+    await auto_close_due_days(db)
     on = on or today()
+    current = today()
+    # The server classifies the date so a day stepper never trusts the device clock.
+    relation = "TODAY" if on == current else ("FUTURE" if on > current else "PAST")
     day_result = await db.execute(select(Day).where(Day.business_id == b.id, Day.date == on))
     day = day_result.scalar_one_or_none()
+    first_date = await db.scalar(
+        select(func.min(Day.date)).where(Day.business_id == b.id)
+    )
     ops = []
     if day:
         ops_result = await db.execute(select(Operation).where(Operation.day_id == day.id))
@@ -1125,9 +1180,16 @@ async def business_summary(
     )
     logs = logs_result.scalars().all()
     
+    # What the date settled for, so a corrected closed day reads correctly here
+    # too instead of only on the day list.
+    settled = await day_payload(db, day) if day else {}
     return {
         "business": data(b),
         "date": on,
+        "relation": relation,
+        "bounds": {"first_date": first_date, "last_date": current},
+        "settled_net_profit": settled.get("settled_net_profit"),
+        "variance": settled.get("variance"),
         "day": data(day) if day else None,
         "purchased_quantity": sum(r.quantity for r in ops if r.kind == "PURCHASE"),
         "sold_quantity": sum(r.quantity for r in ops if r.kind == "SALE"),
@@ -1162,17 +1224,17 @@ async def expense_list(
     if end < start or (end - start).days > 366:
         fail("Invalid date range", 422)
     query = (
-        select(Operation)
-        .join(Day)
+        select(Operation, Day.date)
+        .join(Day, Operation.day_id == Day.id)
         .where(
             Day.business_id == business_id,
             Operation.kind == "EXPENSE",
             Day.date.between(start, end),
         )
-        .order_by(Operation.created_at.desc(), Operation.id)
+        .order_by(Day.date.desc(), Operation.created_at.desc(), Operation.id)
     )
     result = await db.execute(query.offset(offset).limit(limit))
-    return [data(r) for r in result.scalars()]
+    return [{**data(row), "date": recorded_on} for row, recorded_on in result.all()]
 
 
 @app.get("/api/v1/admin/batches", tags=["Broiler"])
@@ -1200,7 +1262,12 @@ async def admin_batch_list(
 
 @app.get("/api/v1/admin/ledger/{day_id}", tags=["Operations"])
 async def daily_detail(day_id: str, db: DB, u=Depends(admin)):
-    """Refresh a historical day without relying on a paginated list snapshot."""
+    """Refresh a historical day without relying on a paginated list snapshot.
+
+    Includes what the day settled for, plus the gap left by any owner
+    correction made after that settlement.
+    """
     row = await get(db, Day, day_id)
     await allowed(db, u, row.business_id)
-    return data(row)
+    await auto_close_due_days(db)
+    return await day_payload(db, row)

@@ -15,10 +15,27 @@ import com.ahsantraders.admin.data.*
 
 fun formTitle(kind: FormKind): String = when (kind) {
     FormKind.SALE -> "Add sale"; FormKind.PURCHASE -> "Add purchase"; FormKind.EXPENSE -> "Add expense"
-    FormKind.BYPRODUCT -> "Pota-Kaliji sale"; FormKind.BATCH_CREATE -> "Create batch"; FormKind.BATCH_LOG -> "Add daily record"
+    FormKind.BYPRODUCT -> "Other sale"; FormKind.BATCH_CREATE -> "Create batch"; FormKind.BATCH_LOG -> "Add daily record"
     FormKind.HARVEST -> "Harvest batch"; FormKind.SUPPLIER -> "Add supplier"; FormKind.PROFILE -> "Edit profile"; FormKind.PASSWORD -> "Change password"
     FormKind.EDIT_OPERATION -> "Correct transaction"
 }
+/**
+ * "Last 5 Sales / Last 5 Purchases / Recent Expenses" below an entry form.
+ * Data comes from the same transaction feed as the history screen, and
+ * "View all" opens that feed with the matching kind filter.
+ */
+@Composable private fun RecentTransactions(s: AdminState, vm: AdminViewModel) {
+    val kind = s.draft?.kind ?: return
+    val unit = if (s.business?.type == "LPG") "Cylinders" else "KG"
+    val (title, empty) = when (kind) {
+        FormKind.SALE -> "Last 5 Sales" to "No sales recorded yet."
+        FormKind.PURCHASE -> "Last 5 Purchases" to "No purchases recorded yet."
+        FormKind.EXPENSE -> "Recent Expenses" to "No expenses recorded yet."
+        else -> "Last 5 Other Sales" to "No other sales recorded yet."
+    }
+    TransactionTable(title, s.recent, unit, empty) { vm.viewAll(kind.name) }
+}
+
 @Composable fun FormScreen(s: AdminState, vm: AdminViewModel) {
     val draft = s.draft ?: return
     var harvestConfirm by remember { mutableStateOf(false) }
@@ -45,10 +62,14 @@ fun formTitle(kind: FormKind): String = when (kind) {
             if (draft.kind == FormKind.SALE && lpg) Selection("Sale channel", draft.values["channel"].orEmpty(), listOf("RETAIL" to "Retail", "COMMERCIAL" to "Commercial"), !s.saving, translateChoices = true) { vm.field("channel", it) }
             if (draft.kind == FormKind.PURCHASE) Selection("Supplier (optional)", draft.values["supplier_id"].orEmpty(), listOf("" to "None") + s.suppliers.map { it.id to it.name }, !s.saving) { vm.field("supplier_id", it) }
             input("note", "Note", multiline = true)
+            RecentTransactions(s, vm)
         }
         FormKind.EXPENSE, FormKind.BYPRODUCT -> {
             input("date", "Date", hint = "YYYY-MM-DD · ${businessDate()} in Pakistan")
-            if (draft.kind == FormKind.BYPRODUCT) input("quantity", "Quantity (kg)", KeyboardType.Decimal)
+            if (draft.kind == FormKind.BYPRODUCT) {
+                input("quantity", "Quantity (kg, optional)", KeyboardType.Decimal, hint = "Leave empty when the weight is unknown")
+                Text("Use Other sale for any income that is not a regular chicken or LPG sale. Enter the total amount received; the weight is optional.", color = Muted, style = MaterialTheme.typography.bodySmall)
+            }
             if (draft.kind == FormKind.EXPENSE) {
                 val current = draft.values["category"].orEmpty()
                 val choices = listOf("" to "None") + (if (current.isNotBlank() && current !in EXPENSE_CATEGORIES) listOf(current) else emptyList()).plus(EXPENSE_CATEGORIES).map { it to it }
@@ -56,11 +77,12 @@ fun formTitle(kind: FormKind): String = when (kind) {
             }
             input("amount", "Amount (Rs.)", KeyboardType.Decimal, hint = "Enter rupees, e.g. 1250.50 — not paisa")
             input("note", if (draft.kind == FormKind.EXPENSE) "Description" else "Note", multiline = true)
+            RecentTransactions(s, vm)
         }
         FormKind.EDIT_OPERATION -> {
             val kind = draft.values["kind"].orEmpty()
             val lpg = draft.values["lpg"] == "1"
-            Text("Correcting a ${kind.lowercase()} from ${draft.values["date"].orEmpty()}. The date cannot change.", color = Muted, style = MaterialTheme.typography.bodyMedium)
+            Text("Correcting a ${kindLabel(kind).lowercase()} from ${draft.values["date"].orEmpty()}. The date cannot change.", color = Muted, style = MaterialTheme.typography.bodyMedium)
             if (kind != "EXPENSE") input("quantity", if (lpg) "Cylinders" else "Weight (kg)", KeyboardType.Decimal)
             if (kind == "PURCHASE" || kind == "SALE") {
                 if (!lpg) input("count", "Quantity (birds)", KeyboardType.Number, hint = "Optional — number of birds, e.g. 3 or 4")
@@ -76,7 +98,7 @@ fun formTitle(kind: FormKind): String = when (kind) {
                 Selection("Category", current, choices, !s.saving) { vm.field("category", it) }
             }
             input("note", if (kind == "EXPENSE") "Description" else "Note", multiline = true)
-            Text("Owner-only correction: only the super admin can update a single transaction, and only while its day is still open.", color = Muted, style = MaterialTheme.typography.bodySmall)
+            Text("Owner-only correction: only the super admin can update a past-date transaction. Saving rebuilds that date's summary; a payout that was already settled is never changed.", color = Muted, style = MaterialTheme.typography.bodySmall)
         }
         FormKind.SUPPLIER -> {
             input("name", "Supplier name"); input("phone", "Phone number", KeyboardType.Phone, hint = "Optional · +923001234567")

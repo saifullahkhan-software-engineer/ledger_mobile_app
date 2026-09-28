@@ -17,14 +17,22 @@ data class Base64IconUploadReq(val filename: String, val data: String)
 data class BusinessReport(val business_id: String, val name: String, val type: String, val revenue: Long, val cost_and_expenses: Long, val net_profit: Long, val open_days: Int)
 data class Previous(val total_sales: Long, val total_profit: Long)
 data class Report(val start: String, val end: String, val businesses: List<BusinessReport>, val total_sales: Long, val total_cost_and_expenses: Long, val total_profit: Long, val yesterday: Previous? = null)
-data class Day(val id: String, val business_id: String, val date: String, val status: String, val revenue: Long, val cost: Long, val expenses: Long, val net_profit: Long) {
+// settled_net_profit / variance are sent by the day endpoints: they show what a
+// closed date actually paid out and the gap left by a super-admin correction.
+data class Day(val id: String, val business_id: String, val date: String, val status: String, val revenue: Long, val cost: Long, val expenses: Long, val net_profit: Long, val settled_net_profit: Long? = null, val variance: Long? = null) {
     val profit: Long get() = revenue - cost - expenses
 }
 data class Batch(val id: String, val business_id: String, val name: String, val chicks: Int, val deaths: Int, val total_shares: Long, val share_price: Long, val expenses: Long, val revenue: Long, val net_profit: Long, val yield_kg: String, val status: String, val started_on: String?, val closed_on: String?)
-data class Summary(val business: Business, val date: String, val day: Day?, val purchased_quantity: String, val sold_quantity: String, val purchased_count: Int = 0, val sold_count: Int = 0, val byproduct_quantity: String, val byproduct_revenue: Long, val retail_sold: String, val commercial_sold: String, val live_birds: Int, val feed_kg: String, val mortality: Int, val batches: List<Batch>)
+// relation is the server's view of the requested date (PAST/TODAY/FUTURE) and
+// bounds are the first recorded date plus today, so the day stepper can label and
+// bound itself without trusting the device clock.
+data class DayBounds(val first_date: String? = null, val last_date: String? = null)
+data class Summary(val business: Business, val date: String, val day: Day?, val purchased_quantity: String, val sold_quantity: String, val purchased_count: Int = 0, val sold_count: Int = 0, val byproduct_quantity: String, val byproduct_revenue: Long, val retail_sold: String, val commercial_sold: String, val live_birds: Int, val feed_kg: String, val mortality: Int, val batches: List<Batch>, val relation: String = "TODAY", val settled_net_profit: Long? = null, val variance: Long? = null, val bounds: DayBounds? = null)
 data class Stock(val business_id: String, val quantity: String, val unit: String, val count: Int = 0, val inventory_cost: Long, val live_birds: Int)
 data class Supplier(val id: String, val business_id: String, val name: String, val phone: String?)
-data class Operation(val id: String, val day_id: String, val kind: String, val quantity: String, val amount: Long, val cost: Long, val channel: String?, val note: String, val supplier_id: String?, val created_at: String, val count: Int? = null, val category: String? = null)
+// date is the business date; the transaction feed and the "last 5" tables send
+// it so a flat list of transactions can show a Date column.
+data class Operation(val id: String, val day_id: String, val kind: String, val quantity: String, val amount: Long, val cost: Long, val channel: String?, val note: String, val supplier_id: String?, val created_at: String, val count: Int? = null, val category: String? = null, val date: String? = null)
 data class OperationDetail(val operation: Operation, val day: Day, val business: Business)
 data class BatchLog(val id: String, val date: String, val feed_kg: String, val deaths: Int, val expense: Long, val note: String)
 data class BatchHistory(val batch: Batch, val logs: List<BatchLog>)

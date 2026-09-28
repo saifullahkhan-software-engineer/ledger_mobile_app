@@ -6,13 +6,13 @@ FastAPI backend for the Admin/Investor PRD. **The Kotlin Admin client lives in [
 
 Implemented: password authentication, roles and assigned-business authorization, chicken/LPG inventory and operational records, suppliers and purchase history, daily closure, broiler funding/start/log/harvest lifecycle, share purchases, append-only financial history, atomic distributions, wallet reservations/refunds, marketplace, portfolio, reports, profile/language, OpenAPI, Postman, Docker and backend CI.
 
-Daily operations record money as the **total price** (weight × per-unit price); profit, revenue and settlements are always computed from those totals, never from weight or bird count. Chicken purchases/sales additionally carry an optional bird **count** that moves `businesses.stock_count` alongside weight-based stock, and expenses carry an optional **category** (e.g. Worker Salary, Electricity). `GET /api/v1/admin/operations/{id}` returns one transaction's full details (operation + day + business); `PATCH /api/v1/admin/operations/{id}` corrects a single transaction **only for the SUPERADMIN and only while its day is OPEN** — it reverses and re-applies the stock/day effects and posts a balancing journal adjustment for any cash difference. Existing databases gain `operations.count`, `operations.category` and `businesses.stock_count` automatically: the API self-heals missing columns on the first request (same pattern as the legacy icon column), so a redeploy onto an old database needs no manual step; `python -m app.manage upgrade-db` remains available as the explicit operator command and is a no-op once healed.
+Daily operations record money as the **total price** (weight × per-unit price); profit, revenue and settlements are always computed from those totals, never from weight or bird count. Chicken purchases/sales additionally carry an optional bird **count** that moves `businesses.stock_count` alongside weight-based stock, and expenses carry an optional **category** (e.g. Worker Salary, Electricity). `GET /api/v1/admin/operations/{id}` returns one transaction's full details (operation + day + business); `PATCH /api/v1/admin/operations/{id}` corrects a single transaction **only for the SUPERADMIN**, on today's open day and on previous dates that have already closed and settled. A correction reverses and re-applies the stock/day effects, posts a balancing journal adjustment for any cash difference and rebuilds that date's summary; a settlement that already paid out is never rewritten (see rule 3 below). Existing databases gain `operations.count`, `operations.category` and `businesses.stock_count` automatically: the API self-heals missing columns on the first request (same pattern as the legacy icon column), so a redeploy onto an old database needs no manual step; `python -m app.manage upgrade-db` remains available as the explicit operator command and is a no-op once healed.
 
 **This is a runnable backend MVP, not a launch-ready financial service.** Real OTP, identity verification, Raast/NayaPay/UBL transfers and callbacks are not implemented. The development-only KYC/deposit/withdrawal simulation is deliberately labelled and disabled outside development. Password login uses a phone number as the username; it does **not** verify ownership of that phone. Do not use this build to accept real investor money.
 
 ### Verification performed in the development sandbox
 
-- SQLite API/service integration tests, including Admin client contract coverage and the database-image flows (upload, exact-byte serving, MIME validation, malformed/oversized rejection, authorization, assignment/replacement/reset, shared-asset safety, list endpoints never loading image bytes, `migrate-images` legacy import/rerun/interruption paths and the `upgrade-db`/`migrate-images` CLI on old schemas): **41 passed, 1 skipped**.
+- SQLite API/service integration tests, including Admin client contract coverage, the transaction feed (kind/date filters, ordering, pagination, access), day-summary navigation (past/today/future, gaps, bounds, no rows created for future dates), midnight auto-close/settlement, owner corrections of settled dates and the database-image flows (upload, exact-byte serving, MIME validation, malformed/oversized rejection, authorization, assignment/replacement/reset, shared-asset safety, list endpoints never loading image bytes, `migrate-images` legacy import/rerun/interruption paths and the `upgrade-db`/`migrate-images` CLI on old schemas): **55 passed, 1 skipped**.
 - Ordered Postman collection executed with Newman: **28 requests, 32 assertions passed**.
 - Tests include concurrent share purchases, concurrent withdrawals, concurrent duplicate settlements, rounding, duplicate-key conflicts, rollback, authorization, password revocation, stock valuation, and batch profit/loss.
 - The skipped test checks PostgreSQL append-only triggers. PostgreSQL/Docker execution was **not verified in this sandbox**: neither was installed, and system package installation failed. CI is configured to run the suite against PostgreSQL 16. Its remote result has not been observed.
@@ -98,6 +98,16 @@ SQLite is a convenience for development/testing, not the target deployment datab
 python -m app.manage init-db
 python -m app.manage seed
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Business days close and settle themselves when their date ends (midnight
+`Asia/Karachi` by default; set `DAY_CLOSE_HOUR` to shift that moment). No
+scheduler is required — the API sweeps finished days before it reports or
+changes any day status. To have the close happen on time even with no traffic,
+run the same sweep from cron, for example every 5 minutes:
+
+```bash
+python -m app.manage auto-close-days
 ```
 
 Run commands from `backend/`, not the repository root. The API does not auto-create tables on startup. `init-db` is for the initial schema; it **does not migrate existing tables** after future schema changes.
@@ -218,7 +228,7 @@ cause any of the errors above; you can omit that command.
 5. Authorize as that investor. Execute `/dev/verify-kyc`, then `/dev/wallet/deposit` with `{"amount":1000000}` (Rs 10,000).
 6. Buy shares using `/investor/transaction/buy`. Do this **before recording the first operation of the day**.
 7. Authorize as the owner again. Use `/admin/ledger/daily` to record purchases, sales and expenses. Copy the returned `day.id`.
-8. Execute `/admin/ledger/close` with that `day_id`.
+8. Execute `/admin/ledger/close` with that `day_id` to close the date early, or wait until midnight (Pakistan time) — the day then closes and settles automatically.
 9. Switch to the investor token; check `/investor/portfolio` and `/investor/wallet/transactions`.
 
 Every financial/operational command with an `Idempotency-Key` header requires a unique key of 8–100 characters, e.g. `chicken-purchase-0001`. **Retry the same command with the same key and identical body** after a timeout. Use a new key for a genuinely new command. Reusing a key with different input returns `409`.
@@ -309,9 +319,10 @@ The supplied image is an **Admin UI reference**, not an investor design or a ful
 | App icon / splash / logo | Client assets; no API needed |
 | Dashboard totals / sector cards | `GET /admin/dashboard` |
 | Side menu business access | `GET /admin/businesses` returns assigned businesses |
-| Chicken/LPG/broiler summary | `GET /admin/businesses/{id}/summary` |
+| Chicken/LPG/broiler summary | `GET /admin/businesses/{id}/summary?on=DATE` — any date, with `relation` (PAST/TODAY/FUTURE), `bounds` (first recorded date, today), `settled_net_profit`/`variance` for a closed date and that day's batch logs |
 | Add sale / purchase / expense | `POST /admin/ledger/daily` with a typed operation |
-| Chicken Pota-Kaliji | `BYPRODUCT` sales, separate quantity and revenue |
+| All Transactions list | `GET /admin/operations` lists single transactions newest-date-first; pass `kind` for a type tab |
+| Chicken "Other sale" (shown as Pota-Kaliji in the reference image) | `BYPRODUCT` sales, separate optional weight and revenue |
 | LPG retail / shopkeeper sales | `SALE` with `RETAIL` or `COMMERCIAL` channel |
 | Close Day (PRD, not pictured) | `POST /admin/ledger/close` |
 | Broiler Add Record | `PUT /admin/batch/{id}/update` |
@@ -320,6 +331,7 @@ The supplied image is an **Admin UI reference**, not an investor design or a ful
 | Supplier bills | Supplier directory and recorded purchase history; not a full accounts-payable system |
 | Expenses list | `GET /admin/expenses` for daily businesses; broiler expenses are in batch logs |
 | Daily / weekly / monthly reports | `GET /admin/reports?start=...&end=...` |
+| "Last 5 sales / purchases", recent expenses, transaction history | `GET /admin/operations?business_id=...&kind=...&start=...&end=...` |
 | My profile / language | `GET/PATCH /me`; English and Urdu values supported |
 | Password / logout | `/auth/change-password`, `/auth/logout` |
 | Add manager (ADMIN) / assign business | `POST /admin/managers`, `PUT/DELETE /admin/businesses/{id}/managers/{uid}` (owner only) |
@@ -334,14 +346,15 @@ All paths in the table except `/health` are prefixed with `/api/v1`. Text is Uni
 
 1. **Units:** All monetary inputs/outputs are integer **paisa**. Rs 100 = `10000`. Never send floating-point rupees. Weights/feed are decimal kg with up to three places. LPG quantities are whole cylinders. `price_per_kg` is paisa per kg.
 2. **Inventory:** Weighted-average cost of goods sold, carrying unsold stock forward. Last-unit sale consumes all remaining inventory cost so rounding does not strand paisa. Purchases must be recorded before sales; negative stock is rejected. Byproduct sales do not subtract primary chicken weight to avoid double counting; use the weight of primary sold stock in `SALE`.
-3. **Day boundary:** Asia/Karachi. New operations must be dated today. An older open day must be closed before new-day operations or share purchases. Closed records are not editable. Backdated entry/corrections/reversals are not exposed in this MVP.
+3. **Day boundary and automatic close:** Asia/Karachi. New operations must be dated today; backdated *entry* is not exposed. A business date closes **automatically once it ends** — by default at midnight (`DAY_CLOSE_HOUR=0`) — which finalizes the day summary and runs the same settlement as a manual close. The sweep runs before any endpoint that reports or changes day status, so it needs no scheduler; `python -m app.manage auto-close-days` does the same from cron for installations that want the close to happen on time with no traffic, and a manual `/admin/ledger/close` still closes today early.
+   - **Corrections after the close:** the super admin (and only the super admin) may correct a transaction — including one on an already settled date — through `PATCH /admin/operations/{id}`. The date summary is rebuilt from its records, but the payout already distributed is never rewritten, and the difference is returned as `variance` alongside `settled_net_profit` so the owner can settle it outside the app. Managers can only add records to today's open date and can never correct one.
 4. **Ownership cutoff:** Running-business purchases are permitted before that day's first operation. Once operations begin, purchases wait until the next business date and all older days are closed. This avoids buying a known day's profit. No resale/redemption/dilution is implemented.
 5. **Denominator:** Daily payouts use the business's **total issued offering shares**, not only sold shares. Unsold equity is economically retained by the business operator. This is an explicit interpretation of the PRD's ambiguous "active shares" wording; confirm it before launch. There is no separate management fee.
 6. **Daily losses:** No investor wallet debit and no negative payout. Loss is recorded; **no loss carry-forward** is implemented. A later positive day can distribute profit. This policy needs business/legal approval.
 7. **Rounding:** Each payout is floored to paisa. Unsold equity's entitlement and rounding remainders are recorded as `retained`. Investor payouts plus retained equal the nonnegative distribution pool.
 8. **Batch lifecycle:** `FUNDING → ACTIVE → HARVESTED`. Investments only while FUNDING, with fixed share price. Starting locks ownership. One feed/mortality log per date. Mortality cannot exceed chicks remaining. Harvest may happen early/late; the PRD's 30–50 days is a target, not a hard gate.
 9. **Batch pool:** `max(0, total_shares × share_price + sale_revenue − all_recorded_costs)`. The unsold capital is assumed to be operator-funded. Record initial chick costs, subsequent feed/other expenses and final extra costs **once**, not again at harvest. Principal is repaid only through the harvest settlement, not again through share redemption. Investor losses are limited to invested principal; excess loss belongs to the operator.
-10. **Settlement timing:** Close/harvest runs settlement immediately in the **same database transaction**, not a CRON. A failed operation rolls back all changes. Repeating the same idempotency key returns the saved response; attempting another settlement on a closed entity conflicts. A queue/outbox is a future scaling step, not a running feature.
+10. **Settlement timing:** Close/harvest runs settlement immediately in the **same database transaction**, not a CRON job. The automatic midnight close is the same in-process settlement triggered by the next request (or by the `auto-close-days` cron command), never a partial state. A failed operation rolls back all changes. Repeating the same idempotency key returns the saved response; attempting another settlement on a closed entity conflicts. A queue/outbox is a future scaling step, not a running feature.
 11. **Concurrency:** A single PostgreSQL row lock serializes API database transactions across workers; SQLite uses `BEGIN IMMEDIATE`. This simple MVP trades throughput for correctness. Replace it with consistently ordered per-business/wallet locks only after load/concurrency testing. Do not remove the lock without redesigning settlement and purchase atomicity.
 12. **Wallet accounting:** No editable `wallet_balance` field. Balance is derived from signed postings. Each journal balances to zero against business/external/withdrawal-hold accounts. Operational cash postings reflect **admin-entered** activity, not bank-confirmed funds. A pending withdrawal reserves the amount; failure refunds it once; success clears its hold.
 13. **Funding limitation:** Business counterpart accounts can be negative when the operator supplies off-platform capital. There is no bank-liquidity reconciliation or solvency check. A posted dividend is an internal entitlement, not proof that external cash is available to withdraw.
@@ -406,7 +419,7 @@ backend/
 | `users` | Phone, password hash, role, KYC flag, language, JWT revocation version |
 | `businesses`, `admin_assignments` | Offering/stock configuration (weight stock, counted stock via `stock_count`) and business-scoped admin access |
 | `suppliers` | Business supplier directory |
-| `daily_ledgers`, `operations` | Daily state and typed purchases/sales/byproduct/expenses; operations carry weight, optional bird `count` and optional expense `category` |
+| `daily_ledgers`, `operations` | Daily state and typed purchases/sales/byproduct ("other sale")/expenses; operations carry weight, optional bird `count` and optional expense `category` |
 | `batches`, `batch_logs` | Broiler funding/lifecycle, costs, feed and mortality |
 | `share_ledger` | Append-only acquisition events with user, business, optional batch, shares, paid amount and time |
 | `journal`, `postings` | Balanced accounting events; wallet balance is a sum, not a mutable field |
@@ -425,7 +438,7 @@ UUIDs identify entities; monetary columns are BIGINT, quantity columns NUMERIC. 
 - Implement actual phone OTP delivery/verification, recovery, KYC evidence/review/retention and admin MFA. Add distributed rate limiting and abuse controls for registration/login at the gateway or application layer.
 - Keep development registration/mock self-verification away from real funds, and use a separate clean production database. Mock verification stores `MOCK_VERIFIED`, which is not accepted outside development. No production KYC approval workflow is provided yet; real-money routes cannot be safely activated as-is.
 - Add reviewed schema migrations (e.g. Alembic), backups and restore drills, restricted DB roles, TLS, secret management, centralized audit/security logs, monitoring and alerting.
-- Add documented correction/reversal workflows, bank/cash reconciliation, and settlement approval controls. Current financial history is not editable through the API.
+- Add bank/cash reconciliation and settlement approval controls, and decide how an owner pays/collects the `variance` left by a post-settlement correction: journals and payouts stay append-only, so a correction after the close changes the date summary without adjusting wallets.
 - Load-test PostgreSQL, run provider integration/security tests, and review journal reconciliation before handling real funds.
 - Add notifications, investor Figma mapping and Investor Kotlin client integration separately. Supplier payable balances, LPG customer accounts and secondary share trading are outside this backend MVP.
 

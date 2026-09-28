@@ -1,8 +1,12 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package com.ahsantraders.admin.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -15,6 +19,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ahsantraders.admin.data.*
@@ -95,7 +100,7 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            textAlign = TextAlign.Center,
                             maxLines = 2
                         )
                         val row = s.dashboard?.businesses?.find { it.business_id == business.id }
@@ -176,7 +181,7 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
                 DataRow("Sold", "${summary.sold_quantity} ${if (b.type == "LPG") "cylinders" else "kg"}")
                 if (b.type == "CHICKEN" && summary.purchased_count > 0) DataRow("Purchased (birds)", summary.purchased_count.toString())
                 if (b.type == "CHICKEN" && summary.sold_count > 0) DataRow("Sold (birds)", summary.sold_count.toString())
-                if (b.type == "CHICKEN") DataRow("Pota-Kaliji sale", rupees(summary.byproduct_revenue))
+                if (b.type == "CHICKEN") DataRow("Other sale", rupees(summary.byproduct_revenue))
                 else { DataRow("Retail sales", summary.retail_sold); DataRow("Commercial sales", summary.commercial_sold) }
                 DataRow("Operating expenses", rupees(summary.day?.expenses ?: 0))
                 HorizontalDivider(); DataRow("Net profit", rupees(summary.day?.profit ?: 0), Green)
@@ -220,9 +225,15 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
                 builtInKeys = listOf("quick_expense", "ADD_EXPENSE_ICON", "add_expense", "expense_icon"),
                 modifier = Modifier.weight(1f)
             ) { vm.openForm(FormKind.EXPENSE) }
-            if (b.type == "CHICKEN") ActionTile("Pota-Kaliji sale", Icons.Default.Restaurant, Chicken, modifier = Modifier.weight(1f)) { vm.openForm(FormKind.BYPRODUCT) }
+            if (b.type == "CHICKEN") ActionTile(
+                label = "Other sale",
+                icon = Icons.Default.LocalOffer,
+                color = Chicken,
+                modifier = Modifier.weight(1f)
+            ) { vm.openForm(FormKind.BYPRODUCT) }
         }
     }
+    if (b.type != "BROILER") LinkRow("Daily summary", Icons.Default.CalendarMonth, businessDate()) { vm.openDayAt(businessDate()) }
     LinkRow("Stock", Icons.Default.Inventory2, customImageUrl = stockIconUrl, builtInKeys = listOf("quick_stock", "STOCK_ICON", "stock_icon", "stock")) { vm.go(Page.STOCK) }
     if (b.type != "BROILER") {
         LinkRow("Transaction history", Icons.Default.ReceiptLong) { vm.go(Page.LEDGER) }
@@ -230,6 +241,7 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
         LinkRow("Suppliers", Icons.Default.LocalShipping) { vm.go(Page.SUPPLIERS) }
         summary?.day?.takeIf { it.status == "OPEN" }?.let { day ->
             OutlinedButton(onClick = { confirmClose(day) }, enabled = !s.saving, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Lock, null); Spacer(Modifier.width(8.dp)); Text(tr("Close day")) }
+            Text(tr("Days close automatically at midnight (Pakistan time). You can also close today now."), color = Muted, fontSize = 12.sp)
         }
     }
     LinkRow("Settlement history", Icons.Default.AccountBalance) { vm.go(Page.SETTLEMENTS) }
@@ -264,18 +276,112 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
     if (s.logs.isEmpty() && !s.loading) Empty()
     s.logs.forEach { log -> Panel { Text(log.date, fontWeight = FontWeight.Bold); DataRow("Feed consumed", "${log.feed_kg} kg"); DataRow("Mortality", log.deaths.toString()); DataRow("Expenses", rupees(log.expense)); if (log.note.isNotEmpty()) Text(log.note) } }
 }
-fun row_price_per_unit(op: Operation): String? {
+/** User-facing transaction name; the API kind stays BYPRODUCT. */
+fun kindLabel(kind: String): String = when (kind) {
+    "BYPRODUCT" -> "Other sale"
+    "SALE" -> "Sale"
+    "PURCHASE" -> "Purchase"
+    "EXPENSE" -> "Expense"
+    else -> kind.replace('_', ' ')
+}
+
+fun row_price_per_unit_paisa(op: Operation): Long? {
     if (op.kind == "EXPENSE") return null
     val qty = op.quantity.toBigDecimalOrNull() ?: return null
     if (qty.signum() <= 0) return null
-    return try { rupees(BigDecimal.valueOf(op.amount).divide(qty, 0, RoundingMode.HALF_UP).longValueExact()) }
+    return try { BigDecimal.valueOf(op.amount).divide(qty, 0, RoundingMode.HALF_UP).longValueExact() }
     catch (_: ArithmeticException) { null }
+}
+fun row_price_per_unit(op: Operation): String? = row_price_per_unit_paisa(op)?.let { rupees(it) }
+
+/** Transaction-type colour: sale green, purchase blue, expense orange, other sale red. */
+fun kindColor(kind: String): Color = when (kind) {
+    "SALE" -> Green
+    "PURCHASE" -> Lpg
+    "EXPENSE" -> Color(0xFFE58B19)
+    else -> Chicken
+}
+
+@Composable fun TypeChip(kind: String) {
+    val color = kindColor(kind)
+    Surface(color = color.copy(alpha = .12f), shape = RoundedCornerShape(8.dp)) {
+        Text(tr(kindLabel(kind)), color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+    }
+}
+
+/** Secondary line of a transaction row: weight/price, bird count or why it was spent. */
+fun transactionDetail(row: Operation, unit: String): String {
+    if (row.kind == "EXPENSE") return row.category?.takeIf { it.isNotBlank() } ?: row.note.ifBlank { "—" }
+    val parts = mutableListOf<String>()
+    val qty = row.quantity.toBigDecimalOrNull()
+    if (qty != null && qty.signum() > 0) {
+        parts += "${row.quantity} $unit"
+        row_price_per_unit_paisa(row)?.let { parts += "${amount(it)} / $unit" }
+    }
+    row.count?.takeIf { it > 0 }?.let { parts += "$it birds" }
+    if (row.note.isNotBlank()) parts += row.note
+    return parts.joinToString(" · ").ifBlank { "—" }
+}
+
+/** One transaction of the history list. */
+@Composable fun TransactionRow(row: Operation, unit: String, onClick: () -> Unit) {
+    Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(row.date ?: "", fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text("Rs. " + amount(row.amount), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TypeChip(row.kind)
+                Text(transactionDetail(row, unit), color = Muted, fontSize = 12.sp, maxLines = 2, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** Compact "last 5" / "recent" table used on the entry forms. */
+@Composable fun TransactionTable(title: String, rows: List<Operation>, unit: String, emptyText: String, onViewAll: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(tr(title), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+        if (rows.isNotEmpty()) TextButton(onClick = onViewAll, enabled = true) { Text(tr("View all"), fontSize = 12.sp) }
+    }
+    if (rows.isEmpty()) { Text(tr(emptyText), color = Muted, fontSize = 12.sp); return }
+    val expense = rows.first().kind == "EXPENSE"
+    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            TableLine(if (expense) listOf("Date", "Category", "Amount") else listOf("Date", unit, "Price", "Total"), header = true)
+            rows.forEach { row ->
+                val qty = row.quantity.toBigDecimalOrNull()?.takeIf { it.signum() > 0 }?.let { row.quantity } ?: "—"
+                TableLine(
+                    if (expense) listOf(row.date.orEmpty(), row.category?.takeIf { it.isNotBlank() } ?: "—", amount(row.amount))
+                    else listOf(row.date.orEmpty(), qty, row_price_per_unit_paisa(row)?.let { amount(it) } ?: "—", amount(row.amount))
+                )
+            }
+        }
+    }
+}
+
+@Composable fun TableLine(cells: List<String>, header: Boolean = false) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        cells.forEachIndexed { index, cell ->
+            Text(
+                cell,
+                modifier = Modifier.weight(if (index == 0) 1.05f else 1f),
+                color = if (header) Muted else Ink,
+                fontSize = if (header) 11.sp else 12.sp,
+                fontWeight = if (header) FontWeight.Bold else FontWeight.Normal,
+                textAlign = if (index == 0) TextAlign.Start else TextAlign.End,
+                maxLines = 1
+            )
+        }
+    }
 }
 
 @Composable fun OperationCard(row: Operation, onClick: () -> Unit = {}) {
     Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) { Text(row.kind.replace('_', ' '), color = Green, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)); Text(rupees(row.amount), fontWeight = FontWeight.Bold) }
+            Row(verticalAlignment = Alignment.CenterVertically) { Text(tr(kindLabel(row.kind)), color = Green, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)); Text(rupees(row.amount), fontWeight = FontWeight.Bold) }
+            row.date?.takeIf { it.isNotBlank() }?.let { DataRow("Date", it) }
             if (row.kind != "EXPENSE") DataRow("Weight", row.quantity)
             row.count?.takeIf { it > 0 }?.let { DataRow("Quantity (birds)", it.toString()) }
             row.category?.takeIf { it.isNotBlank() }?.let { DataRow("Category", it) }
@@ -339,7 +445,7 @@ fun row_price_per_unit(op: Operation): String? {
                             angle += sweep
                         }
                     }
-                    Text("Positive\nprofit mix", color = Muted, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Text("Positive\nprofit mix", color = Muted, fontSize = 12.sp, textAlign = TextAlign.Center)
                 }
                 Text("Chart shows positive profits only; losses remain included in totals above.", color = Muted, fontSize = 11.sp)
             }
@@ -375,9 +481,92 @@ fun row_price_per_unit(op: Operation): String? {
                 Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).clip(RoundedCornerShape(6.dp)).background(color))
             }
         }
-        Text(rupees(value), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Ink, textAlign = androidx.compose.ui.text.style.TextAlign.End, modifier = Modifier.width(88.dp))
+        Text(rupees(value), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Ink, textAlign = TextAlign.End, modifier = Modifier.width(88.dp))
     }
 }
+/**
+ * Day stepper: browse the shop day by day. Says what kind of date it is
+ * (today / closed / no records / not started) using the server's classification,
+ * stops at the first recorded date and at today, and allows a direct jump.
+ */
+@Composable fun DayStepper(s: AdminState, vm: AdminViewModel, onPickDate: () -> Unit) {
+    val today = businessDate()
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        IconButton(onClick = { vm.stepDay(-1) }, enabled = !s.saving && vm.dayCanGoBack()) { Icon(Icons.Default.ChevronLeft, tr("Previous day")) }
+        Row(
+            Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).clickable { onPickDate() }.padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(Icons.Default.CalendarMonth, null, tint = Green, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(s.dayDate, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            if (s.dayDate == today) Text("  ${tr("Today")}", color = Muted, fontSize = 12.sp)
+        }
+        IconButton(onClick = { vm.stepDay(1) }, enabled = !s.saving && vm.dayCanGoForward()) { Icon(Icons.Default.ChevronRight, tr("Next day")) }
+    }
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(selected = s.dayDate == today, onClick = { vm.openDayAt(today) }, label = { Text(tr("Today")) }, enabled = !s.saving)
+        FilterChip(selected = s.dayDate == LocalDate.parse(today).minusDays(1).toString(), onClick = { vm.openDayAt(LocalDate.parse(today).minusDays(1).toString()) }, label = { Text(tr("Yesterday")) }, enabled = !s.saving)
+        FilterChip(selected = false, onClick = onPickDate, label = { Text(tr("Pick a date")) }, enabled = !s.saving)
+    }
+}
+
+/** Calendar with the same bounds as the stepper: first recorded date → today. */
+@Composable fun DayPickerDialog(initial: String, firstDate: String?, lastDate: String, onDismiss: () -> Unit, onPick: (String) -> Unit) {
+    fun toMillis(date: String) = LocalDate.parse(date).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+    fun toDate(millis: Long) = java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+    val last = LocalDate.parse(lastDate)
+    val first = firstDate?.let { LocalDate.parse(it) }
+    val state = rememberDatePickerState(
+        initialSelectedDateMillis = runCatching { toMillis(initial) }.getOrDefault(toMillis(lastDate)),
+        selectableDates = object : SelectableDates {
+            override fun isSelectableDate(utcTimeMillis: Long): Boolean {
+                val date = toDate(utcTimeMillis)
+                return !date.isAfter(last) && (first == null || !date.isBefore(first))
+            }
+            override fun isSelectableYear(year: Int): Boolean = year <= last.year && (first == null || year >= first.year)
+        }
+    )
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = { state.selectedDateMillis?.let { onPick(toDate(it).toString()) }; onDismiss() }) { Text(tr("OK")) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Cancel")) } }
+    ) { DatePicker(state = state) }
+}
+
+/** Kind and date-range filters of the transaction history. */
+@Composable fun HistoryFilters(s: AdminState, vm: AdminViewModel) {
+    val today = LocalDate.parse(businessDate())
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf("" to "All", "SALE" to "Sale", "PURCHASE" to "Purchase", "EXPENSE" to "Expense", "BYPRODUCT" to "Other sale").forEach { (kind, label) ->
+            FilterChip(
+                selected = s.historyKind == kind,
+                onClick = { vm.setHistoryKind(kind) },
+                label = { Text(tr(label)) },
+                enabled = !s.loading && !s.saving
+            )
+        }
+    }
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        val ranges: List<Triple<String, String?, String?>> = listOf(
+            Triple("Latest", null, null),
+            Triple("Today", today.toString(), today.toString()),
+            Triple("7 days", today.minusDays(6).toString(), today.toString()),
+            Triple("This month", today.withDayOfMonth(1).toString(), today.toString())
+        )
+        ranges.forEach { (label, start, end) ->
+            FilterChip(
+                selected = s.historyStart == start && s.historyEnd == end,
+                onClick = { vm.setHistoryRange(start, end) },
+                label = { Text(tr(label)) },
+                enabled = !s.loading && !s.saving
+            )
+        }
+    }
+}
+
 @Composable fun SecondaryScreen(s: AdminState, vm: AdminViewModel, confirmClose: (Day) -> Unit) {
     when (s.page) {
         Page.STOCK -> s.stock?.let { stock ->
@@ -387,25 +576,65 @@ fun row_price_per_unit(op: Operation): String? {
             Text("Stock changes when you record operations. Negative stock is not allowed.", color = Muted, fontSize = 12.sp)
         }
         Page.LEDGER -> {
-            if (s.days.isEmpty() && !s.loading) Empty()
-            s.days.forEach { day -> Card(onClick = { vm.openDay(day) }, colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row { Text(day.date, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold); Status(day.status) }
-                    DataRow("Revenue", rupees(day.revenue)); DataRow("Net profit", rupees(day.profit))
+            // Single transactions by default; the day overview stays one tap away.
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Transactions" to "TRANSACTIONS", "Days" to "DAYS").forEach { (label, view) ->
+                    FilterChip(
+                        selected = s.historyView == view,
+                        onClick = { vm.setHistoryView(view) },
+                        label = { Text(tr(label)) },
+                        enabled = !s.loading && !s.saving
+                    )
                 }
-            } }; MoreButton(s, vm)
+            }
+            if (s.historyView == "DAYS") {
+                if (s.days.isEmpty() && !s.loading) Empty()
+                s.days.forEach { day -> Card(onClick = { vm.openDay(day) }, colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                    Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row { Text(day.date, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold); Status(day.status) }
+                        DataRow("Revenue", rupees(day.revenue)); DataRow("Net profit", rupees(day.profit))
+                        day.variance?.takeIf { it != 0L }?.let { Text("Corrected after settlement — difference ${rupees(it)}", color = Muted, fontSize = 11.sp) }
+                    }
+                } }
+            } else {
+                HistoryFilters(s, vm)
+                val unit = if (s.business?.type == "LPG") "cylinders" else "kg"
+                if (s.operations.isEmpty() && !s.loading) Empty("No transactions in this range")
+                s.operations.forEach { row -> TransactionRow(row, unit) { vm.openOperation(row, s.page) } }
+            }
+            MoreButton(s, vm)
         }
         Page.DAY -> {
-            s.day?.let { day -> Panel { Text(day.date, fontWeight = FontWeight.Bold); Status(day.status); DataRow("Revenue", rupees(day.revenue)); DataRow("Cost of sales", rupees(day.cost)); DataRow("Expenses", rupees(day.expenses)); DataRow("Net profit", rupees(day.profit), Green) }
+            var pickDay by remember { mutableStateOf(false) }
+            DayStepper(s, vm) { pickDay = true }
+            val day = s.day
+            if (day != null) {
+                Panel {
+                    Status(day.status)
+                    DataRow("Revenue", rupees(day.revenue)); DataRow("Cost of sales", rupees(day.cost)); DataRow("Expenses", rupees(day.expenses)); DataRow("Net profit", rupees(day.profit), Green)
+                    day.settled_net_profit?.let { DataRow("Profit settled with investors", rupees(it)) }
+                    day.variance?.takeIf { it != 0L }?.let { DataRow("Difference after correction", rupees(it), if (it < 0) Chicken else Green) }
+                }
+                if (day.settled_net_profit != null) {
+                    Text(tr("This date is already settled. A super-admin correction updates these records and this summary only; the payout that was made stays unchanged, and any difference is shown above."), color = Muted, fontSize = 12.sp)
+                } else if (day.status == "OPEN") {
+                    Text(tr("This date closes automatically at midnight (Pakistan time). You can also close it now."), color = Muted, fontSize = 12.sp)
+                }
                 if (day.status == "OPEN") Button(onClick = { confirmClose(day) }, enabled = !s.saving, modifier = Modifier.fillMaxWidth()) { Text(tr("Close day")) }
+            } else if (s.dayRelation == "FUTURE") {
+                Panel { DataRow("Date", s.dayDate); Text(tr("This date has not started. Sales, purchases and expenses can only be recorded on the day itself."), color = Muted, fontSize = 12.sp) }
+            } else {
+                Panel { DataRow("Date", s.dayDate); Text(tr("No records for this date."), color = Muted, fontSize = 12.sp) }
             }
-            if (s.operations.isEmpty() && !s.loading) Empty()
-            s.operations.forEach { OperationCard(it) { vm.openOperation(it, s.page) } }
+            val unit = if (s.business?.type == "LPG") "cylinders" else "kg"
+            if (s.operations.isEmpty() && !s.loading) Empty("No transactions on this date")
+            s.operations.forEach { row -> TransactionRow(row, unit) { vm.openOperation(row, s.page) } }
+            if (pickDay) DayPickerDialog(s.dayDate, s.dayFirstDate, s.dayLastDate ?: businessDate(), { pickDay = false }) { vm.openDayAt(it) }
         }
         Page.OPERATION -> s.operationDetail?.let { od ->
             val op = od.operation
             Panel {
-                Row(verticalAlignment = Alignment.CenterVertically) { Text(op.kind.replace('_', ' '), color = Green, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)); Status(od.day.status) }
+                Row(verticalAlignment = Alignment.CenterVertically) { Text(tr(kindLabel(op.kind)), color = Green, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)); Status(od.day.status) }
                 DataRow("Date", od.day.date)
                 DataRow("Business", od.business.name)
                 if (op.kind != "EXPENSE") DataRow("Weight", op.quantity)
@@ -420,10 +649,15 @@ fun row_price_per_unit(op: Operation): String? {
                 Text("Recorded ${op.created_at}", fontSize = 11.sp, color = Muted)
             }
             Text("Profit is calculated on the total price above, not on the weight or bird count.", color = Muted, fontSize = 12.sp)
-            if (s.user?.role == "SUPERADMIN" && od.day.status == "OPEN") {
+            if (s.user?.role == "SUPERADMIN") {
                 Button(onClick = { vm.openEditOperation() }, enabled = !s.saving, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Edit, null); Spacer(Modifier.width(8.dp)); Text(tr("Edit transaction")) }
+                if (od.day.status == "OPEN") {
+                    Text("This date is still open. Saving a correction updates the date summary immediately.", color = Muted, fontSize = 12.sp)
+                } else {
+                    Text("This date is already settled. Saving a correction rebuilds the date summary; the settled payout is not changed and the difference stays visible on the date.", color = Muted, fontSize = 12.sp)
+                }
             } else {
-                Text("Only the super admin can correct a transaction, and only while its day is still open.", color = Muted, fontSize = 12.sp)
+                Text("Only the super admin can correct a previous-date transaction. Managers can add records to today's open date only.", color = Muted, fontSize = 12.sp)
             }
         }
         Page.SUPPLIERS -> {

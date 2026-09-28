@@ -22,10 +22,18 @@ data class AdminState(
     val dashboard: Report? = null, val report: Report? = null, val summary: Summary? = null,
     val stock: Stock? = null, val days: List<Day> = emptyList(), val day: Day? = null,
     val operationId: String? = null, val operationDetail: OperationDetail? = null, val operationReturn: Page = Page.LEDGER,
+    // Day view is addressed by date, not by day row: a date always exists, a
+    // ledger row may not (gap, or a date that has not started).
+    val dayDate: String = businessDate(), val dayRelation: String = "TODAY",
+    val dayFirstDate: String? = null, val dayLastDate: String? = businessDate(),
     val suppliers: List<Supplier> = emptyList(), val supplier: Supplier? = null,
     val operations: List<Operation> = emptyList(), val batches: List<Batch> = emptyList(),
     val batch: Batch? = null, val logs: List<BatchLog> = emptyList(), val settlements: List<Settlement> = emptyList(),
     val more: Boolean = false, val start: String = businessDate(), val end: String = businessDate(),
+    // Transaction history: a flat list of single transactions by default, with the
+    // day overview one tap away. recent powers the "last 5" tables on the forms.
+    val historyView: String = "TRANSACTIONS", val historyKind: String = "",
+    val historyStart: String? = null, val historyEnd: String? = null, val recent: List<Operation> = emptyList(),
     val reportBusiness: String? = null, val draft: Draft? = null, val language: String = "en",
     val users: List<UserOut> = emptyList(), val userDetail: UserOut? = null, val userDraft: UserDraft? = null,
     val userSearch: String = "", val userFilter: String = "", val icons: List<AppIconItem> = emptyList(),
@@ -130,14 +138,41 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
             }
             Page.BUSINESS -> {
                 val summary = api.summary(id)
-                updateState { it.copy(summary = summary, business = summary.business) }
+                updateState {
+                    it.copy(
+                        summary = summary, business = summary.business,
+                        dayDate = businessDate(),
+                        dayRelation = summary.relation,
+                        dayFirstDate = summary.bounds?.first_date,
+                        dayLastDate = summary.bounds?.last_date ?: businessDate()
+                    )
+                }
             }
             Page.STOCK -> { val result = api.stock(id); updateState { it.copy(stock = result) } }
             Page.LEDGER -> {
-                val rows = api.days(id, if (append) s.days.size else 0)
-                updateState { it.copy(days = (if (append) s.days else emptyList()) + rows, more = rows.size == 50) }
+                if (s.historyView == "DAYS") {
+                    val rows = api.days(id, if (append) s.days.size else 0)
+                    updateState { it.copy(days = (if (append) s.days else emptyList()) + rows, more = rows.size == 50) }
+                } else {
+                    val rows = api.operationsFeed(id, s.historyKind.ifBlank { null }, s.historyStart, s.historyEnd, if (append) s.operations.size else 0)
+                    updateState { it.copy(operations = (if (append) s.operations else emptyList()) + rows, more = rows.size == 50) }
+                }
             }
-            Page.DAY -> { val day = api.day(requireNotNull(s.day).id); val result = api.operations(day.id); updateState { it.copy(day = day, operations = result) } }
+            Page.DAY -> {
+                val summary = api.summary(id, s.dayDate)
+                val rows = api.operationsFeed(id, start = s.dayDate, end = s.dayDate, offset = 0, limit = 200)
+                updateState {
+                    it.copy(
+                        summary = summary,
+                        // settled/variance live at the top level of the summary response.
+                        day = summary.day?.copy(settled_net_profit = summary.settled_net_profit, variance = summary.variance),
+                        dayRelation = summary.relation,
+                        dayFirstDate = summary.bounds?.first_date,
+                        dayLastDate = summary.bounds?.last_date ?: businessDate(),
+                        operations = rows
+                    )
+                }
+            }
             Page.OPERATION -> { val detail = api.operation(requireNotNull(s.operationId)); updateState { it.copy(operationDetail = detail) } }
             Page.SUPPLIERS -> { val result = api.suppliers(id); updateState { it.copy(suppliers = result) } }
             Page.BILLS -> {
@@ -180,9 +215,15 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
     fun go(page: Page, business: Business? = state.value.business) {
         if (state.value.saving) return
         readJob?.cancel()
-        updateState { it.copy(page = page, business = business, draft = null, error = null, summary = null, stock = null,
-            operations = emptyList(), logs = emptyList(), days = emptyList(), suppliers = emptyList(), batches = emptyList(), settlements = emptyList(), report = null, more = false,
-            users = emptyList(), userDetail = null, userDraft = null, operationDetail = null) }
+        updateState { current ->
+            val sameBusiness = business?.id == current.business?.id
+            current.copy(page = page, business = business, draft = null, error = null, summary = null, stock = null,
+                operations = emptyList(), recent = emptyList(), logs = emptyList(), days = emptyList(), suppliers = emptyList(), batches = emptyList(), settlements = emptyList(), report = null, more = false,
+                users = emptyList(), userDetail = null, userDraft = null, operationDetail = null,
+                dayDate = if (sameBusiness) current.dayDate else businessDate(),
+                dayFirstDate = if (sameBusiness) current.dayFirstDate else null,
+                dayLastDate = businessDate())
+        }
         refresh()
     }
     fun openOperation(row: Operation, from: Page) {
@@ -225,7 +266,62 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
             else -> Page.HOME
         })
     }
-    fun openDay(day: Day) { updateState { it.copy(day = day) }; go(Page.DAY) }
+    /** Switch the history between the flat transaction list and the day overview. */
+    fun setHistoryView(view: String) {
+        if (state.value.saving || state.value.historyView == view) return
+        updateState { it.copy(historyView = view, operations = emptyList(), days = emptyList(), more = false) }
+        refresh()
+    }
+    fun setHistoryKind(kind: String) {
+        if (state.value.saving || state.value.historyKind == kind) return
+        updateState { it.copy(historyKind = kind, operations = emptyList(), more = false) }
+        refresh()
+    }
+    /** null dates mean "latest transactions", not a range. */
+    fun setHistoryRange(start: String?, end: String?) {
+        if (state.value.saving) return
+        try {
+            if (start != null && end != null) {
+                val first = LocalDate.parse(start); val last = LocalDate.parse(end)
+                require(!last.isBefore(first) && java.time.temporal.ChronoUnit.DAYS.between(first, last) <= 366) { "range" }
+            }
+            updateState { it.copy(historyStart = start, historyEnd = end, operations = emptyList(), more = false) }
+            refresh()
+        } catch (_: Exception) { updateState { it.copy(error = "Enter valid YYYY-MM-DD dates, in order, within 366 days") } }
+    }
+    /** "View all" from a form's last-5 table: the same transactions, unfiltered by date. */
+    fun viewAll(kind: String) {
+        if (state.value.saving) return
+        updateState { it.copy(historyView = "TRANSACTIONS", historyKind = kind, historyStart = null, historyEnd = null) }
+        go(Page.LEDGER)
+    }
+    /** Open the day view of one date (today, a past date, even a date with no records). */
+    fun openDayAt(date: String) {
+        if (state.value.saving) return
+        updateState { it.copy(dayDate = date, day = null) }
+        go(Page.DAY)
+    }
+    fun openDay(day: Day) = openDayAt(day.date)
+    /** Previous/next day. Stops at the first recorded date and at today. */
+    fun stepDay(days: Long) {
+        if (state.value.saving) return
+        val target = try { LocalDate.parse(state.value.dayDate).plusDays(days) } catch (_: Exception) { return }
+        val last = state.value.dayLastDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        if (last != null && target.isAfter(last)) return
+        state.value.dayFirstDate?.let {
+            val first = runCatching { LocalDate.parse(it) }.getOrNull()
+            if (first != null && target.isBefore(first)) return
+        }
+        openDayAt(target.toString())
+    }
+    fun dayCanGoBack(): Boolean {
+        val first = state.value.dayFirstDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return false
+        return runCatching { LocalDate.parse(state.value.dayDate).isAfter(first) }.getOrDefault(false)
+    }
+    fun dayCanGoForward(): Boolean {
+        val last = state.value.dayLastDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return false
+        return runCatching { LocalDate.parse(state.value.dayDate).isBefore(last) }.getOrDefault(false)
+    }
     fun openSupplier(supplier: Supplier) { updateState { it.copy(supplier = supplier) }; go(Page.BILLS) }
     fun openBatch(batch: Batch) { updateState { it.copy(batch = batch) }; go(Page.BATCH) }
     fun isSuperAdmin(): Boolean = state.value.user?.role == "SUPERADMIN"
@@ -352,15 +448,26 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
         val values = mutableMapOf("date" to businessDate(), "channel" to "RETAIL", "deaths" to "0", "feed" to "0")
         if (kind in listOf(FormKind.BATCH_CREATE, FormKind.BATCH_LOG, FormKind.HARVEST)) values["amount"] = "0"
         if (kind == FormKind.PROFILE) { values["name"] = user?.name.orEmpty(); values["language"] = user?.language ?: "en" }
-        updateState { it.copy(draft = Draft(kind, values), loading = false, error = null) }
-        if (kind == FormKind.PURCHASE) {
-            val id = state.value.business?.id ?: return
+        updateState { it.copy(draft = Draft(kind, values), loading = false, error = null, recent = emptyList()) }
+        val id = state.value.business?.id
+        val filter = recentKind(kind)
+        if (id != null && (filter != null || kind == FormKind.PURCHASE)) {
             val turn = generation
             readJob = viewModelScope.launch {
-                try { val rows = repo.api.suppliers(id); if (turn == generation) updateState { it.copy(suppliers = rows) } }
-                catch (e: Exception) { if (e is CancellationException) throw e; if (turn == generation) failed(e) }
+                try {
+                    // Same feed as the history screen: the form shows the last few
+                    // transactions of its own kind for the chosen business.
+                    val last = if (filter != null) repo.api.operationsFeed(id, filter, limit = 5, offset = 0) else emptyList()
+                    val suppliers = if (kind == FormKind.PURCHASE) repo.api.suppliers(id) else emptyList()
+                    if (turn == generation) updateState { it.copy(recent = last, suppliers = if (kind == FormKind.PURCHASE) suppliers else it.suppliers) }
+                } catch (e: Exception) { if (e is CancellationException) throw e; if (turn == generation) failed(e) }
             }
         }
+    }
+    /** Forms that show a "last 5" table, mapped to the feed's kind filter. */
+    private fun recentKind(kind: FormKind): String? = when (kind) {
+        FormKind.SALE -> "SALE"; FormKind.PURCHASE -> "PURCHASE"
+        FormKind.EXPENSE -> "EXPENSE"; FormKind.BYPRODUCT -> "BYPRODUCT"; else -> null
     }
     fun field(name: String, value: String) {
         if (!state.value.saving) updateState { current ->

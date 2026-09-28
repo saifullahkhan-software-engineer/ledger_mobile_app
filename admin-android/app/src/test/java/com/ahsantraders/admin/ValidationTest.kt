@@ -58,6 +58,20 @@ class ValidationTest {
         assertThrows(IllegalArgumentException::class.java) { formBody(draft, broiler, batch, date) }
         assertEquals(8, formBody(draft.copy(values = draft.values + ("deaths" to "8")), broiler, batch, date)["deaths"].asInt)
     }
+    @Test fun otherSaleAcceptsAnOptionalWeight() {
+        // "Other sale" (backend BYPRODUCT) is any extra income: the amount is
+        // always required, the weight may be left empty.
+        val draft = Draft(FormKind.BYPRODUCT, mapOf("date" to date, "amount" to "250.50", "quantity" to ""))
+        val body = formBody(draft, chicken, null, date)
+        assertEquals("BYPRODUCT", body["kind"].asString)
+        assertEquals("0", body["quantity"].asString)
+        assertEquals(25050L, body["amount"].asLong)
+        assertEquals("1.5", formBody(draft.copy(values = draft.values + ("quantity" to "1.5")), chicken, null, date)["quantity"].asString)
+        // The owner correction form keeps the same optional weight.
+        val fix = Draft(FormKind.EDIT_OPERATION, mapOf("kind" to "BYPRODUCT", "quantity" to "", "amount" to "10", "note" to "", "date" to date))
+        assertEquals("0", formBody(fix, chicken, null, date)["quantity"].asString)
+        assertEquals(1000L, formBody(fix, chicken, null, date)["amount"].asLong)
+    }
     @Test fun harvestUsesOnlyNewExpenses() {
         val body = formBody(Draft(FormKind.HARVEST, mapOf("quantity" to "100", "price" to "150.50", "amount" to "25")), broiler, batch, date)
         assertEquals(15050L, body["price_per_kg"].asLong)

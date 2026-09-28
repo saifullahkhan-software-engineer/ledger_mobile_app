@@ -498,6 +498,7 @@ def test_impossible_quantities_and_money(client, admin_headers, investor_headers
             {"amount": amount},
             status=422,
         )
+    # LPG now accepts decimal quantities (weight in kg), but count must be integer
     post(
         client,
         "/admin/ledger/daily",
@@ -509,7 +510,6 @@ def test_impossible_quantities_and_money(client, admin_headers, investor_headers
             "quantity": "1.5",
             "amount": 100,
         },
-        status=422,
     )
     assert client.get("/health").json()["status"] == "ok"
 

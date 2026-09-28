@@ -67,6 +67,9 @@ import kotlinx.coroutines.launch
     var startBatch by remember { mutableStateOf(false) }
     var logout by remember { mutableStateOf(false) }
     var discard by remember { mutableStateOf(false) }
+    // Quick Add flow: Step 1 picks a business, Step 2 picks a transaction type.
+    var quickAdd by remember { mutableStateOf(false) }
+    var quickAddBusiness by remember { mutableStateOf<Business?>(null) }
     fun back() { if (s.draft != null) discard = true else vm.back() }
     BackHandler(enabled = s.page != Page.HOME || s.draft != null || drawer.isOpen || s.saving) {
         if (!s.saving) { if (drawer.isOpen) scope.launch { drawer.close() } else back() }
@@ -235,17 +238,17 @@ import kotlinx.coroutines.launch
                                 enabled = !s.saving
                             )
                             NavigationBarItem(
-                                selected = s.page == Page.EXPENSES,
-                                onClick = { chooseKind = FormKind.EXPENSE },
-                                icon = { Icon(Icons.Default.AccountBalanceWallet, null) },
-                                label = { Text(tr("Expenses")) },
-                                enabled = !s.saving
-                            )
-                            NavigationBarItem(
                                 selected = s.page == Page.REPORTS,
                                 onClick = { vm.go(Page.REPORTS) },
                                 icon = { Icon(Icons.Default.BarChart, null) },
                                 label = { Text(tr("Reports")) },
+                                enabled = !s.saving
+                            )
+                            NavigationBarItem(
+                                selected = false,
+                                onClick = { quickAdd = true },
+                                icon = { Icon(Icons.Default.AddCircle, null, tint = Green) },
+                                label = { Text(tr("Add")) },
                                 enabled = !s.saving
                             )
                         }
@@ -296,6 +299,41 @@ import kotlinx.coroutines.launch
             if (kind == FormKind.EXPENSE) Text("Broiler expenses are recorded inside an active batch.", style = MaterialTheme.typography.bodySmall)
         }
     }, confirmButton = { TextButton(onClick = { chooseKind = null }) { Text(tr("Cancel")) } }) }
+    // Step 1: Pick a business for quick add
+    if (quickAdd) AlertDialog(onDismissRequest = { quickAdd = false }, title = { Text(tr("Choose a business")) }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val choices = s.businesses.filter { it.type != "BROILER" }
+            if (choices.isEmpty()) Text("No daily businesses assigned.")
+            choices.forEach { b ->
+                TextButton(onClick = { quickAdd = false; quickAddBusiness = b }, modifier = Modifier.fillMaxWidth()) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SectorIcon(b.type, tint = sectorColor(b.type), modifier = Modifier.size(22.dp))
+                        Text(b.name)
+                    }
+                }
+            }
+        }
+    }, confirmButton = { TextButton(onClick = { quickAdd = false }) { Text(tr("Cancel")) } })
+    // Step 2: Pick a transaction type for the selected business
+    quickAddBusiness?.let { business -> AlertDialog(onDismissRequest = { quickAddBusiness = null }, title = { Text(tr("What do you want to add?")) }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(business.name, style = MaterialTheme.typography.bodySmall, color = Muted)
+            TextButton(onClick = { quickAddBusiness = null; vm.go(Page.BUSINESS, business); vm.openForm(FormKind.SALE) }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.PointOfSale, null, tint = Green, modifier = Modifier.size(22.dp)); Spacer(Modifier.width(10.dp)); Text(tr("Sale"))
+            }
+            TextButton(onClick = { quickAddBusiness = null; vm.go(Page.BUSINESS, business); vm.openForm(FormKind.PURCHASE) }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.ShoppingCart, null, tint = Lpg, modifier = Modifier.size(22.dp)); Spacer(Modifier.width(10.dp)); Text(tr("Purchase"))
+            }
+            TextButton(onClick = { quickAddBusiness = null; vm.go(Page.BUSINESS, business); vm.openForm(FormKind.EXPENSE) }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.AccountBalanceWallet, null, tint = Color(0xFFE58B19), modifier = Modifier.size(22.dp)); Spacer(Modifier.width(10.dp)); Text(tr("Expense"))
+            }
+            if (business.type == "CHICKEN") {
+                TextButton(onClick = { quickAddBusiness = null; vm.go(Page.BUSINESS, business); vm.openForm(FormKind.BYPRODUCT) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.LocalOffer, null, tint = Chicken, modifier = Modifier.size(22.dp)); Spacer(Modifier.width(10.dp)); Text(tr("Other sale"))
+                }
+            }
+        }
+    }, confirmButton = { TextButton(onClick = { quickAddBusiness = null }) { Text(tr("Cancel")) } }) }
     closeDay?.let { day -> ConfirmDialog("Close day", "Close ${day.date} now? Net profit is ${rupees(day.profit)}. Days close by themselves at midnight (Pakistan time); closing now finalizes the records and distributes eligible investor profit immediately. Afterwards only the super admin can correct this date's transactions, and a settled payout is never changed.", { closeDay = null }) { closeDay = null; vm.closeDay(day) } }
     if (startBatch) ConfirmDialog("Start batch", "Starting this batch closes its funding window and locks investor ownership. Continue?", { startBatch = false }) { startBatch = false; vm.startBatch() }
     if (logout) ConfirmDialog("Sign out", "Sign out and revoke existing sessions? If offline, only this device can be signed out.", { logout = false }) { logout = false; vm.logout(); onLogout?.invoke() }

@@ -593,9 +593,7 @@ async def stock(business_id: str, db: DB, u=Depends(admin)):
         "business_id": b.id,
         "quantity": b.stock,
         "unit": "kg"
-        if b.type == "CHICKEN"
-        else "cylinders"
-        if b.type == "LPG"
+        if b.type in ("CHICKEN", "LPG")
         else "birds",
         "count": b.stock_count,
         "inventory_cost": b.stock_cost,

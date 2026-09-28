@@ -54,14 +54,14 @@ fun moneyInput(text: String, zeroAllowed: Boolean = false): Long {
 fun quantityInput(text: String, zeroAllowed: Boolean = false, whole: Boolean = false): String {
     val value = text.trim().toBigDecimalOrNull() ?: throw IllegalArgumentException("Enter a valid quantity")
     require(value >= (if (zeroAllowed) BigDecimal.ZERO else BigDecimal("0.001")) && value <= BigDecimal("1000000")) { "Quantity is outside the allowed range" }
-    require(value.stripTrailingZeros().scale() <= if (whole) 0 else 3) { if (whole) "Enter whole cylinders" else "Use at most three decimal places" }
+    require(value.stripTrailingZeros().scale() <= if (whole) 0 else 3) { if (whole) "Enter a whole number" else "Use at most three decimal places" }
     return value.toPlainString()
 }
 enum class FormKind { SALE, PURCHASE, EXPENSE, BYPRODUCT, BATCH_CREATE, BATCH_LOG, HARVEST, SUPPLIER, PROFILE, PASSWORD, EDIT_OPERATION }
 
 val EXPENSE_CATEGORIES = listOf("Worker Salary", "Electricity", "Ice / Cold", "Transport", "Feed", "Rent", "Other")
 
-/** Total price in paisa = weight/cylinders × per-unit price; profit always uses this total, never the weight alone. */
+/** Total price in paisa = weight (kg) × per-unit price; profit always uses this total, never the weight alone. */
 fun totalInput(quantityText: String, priceText: String, whole: Boolean): Long {
     val kg = BigDecimal(quantityInput(quantityText, false, whole))
     val price = moneyInput(priceText)
@@ -92,8 +92,8 @@ fun formBody(draft: Draft, business: Business?, batch: Batch?, today: String = b
                 require(b.type != "BROILER") { "Use batch logs for broiler expenses" }
                 require(date() == today) { "Daily records must use today's Pakistan date" }
                 addProperty("business_id", b.id); addProperty("date", date()); addProperty("kind", draft.kind.name)
-                addProperty("quantity", quantityInput(value("quantity"), false, b.type == "LPG"))
-                addProperty("amount", totalInput(value("quantity"), value("price"), b.type == "LPG"))
+                addProperty("quantity", quantityInput(value("quantity"), false, false))
+                addProperty("amount", totalInput(value("quantity"), value("price"), false))
                 if (value("count").isNotBlank()) addProperty("count", count("count"))
                 if (b.type == "LPG" && draft.kind == FormKind.SALE) {
                     require(value("channel") in listOf("RETAIL", "COMMERCIAL")) { "Choose a sale channel" }
@@ -122,9 +122,9 @@ fun formBody(draft: Draft, business: Business?, batch: Batch?, today: String = b
             FormKind.EDIT_OPERATION -> {
                 val kind = value("kind")
                 require(kind in listOf("PURCHASE", "SALE", "BYPRODUCT", "EXPENSE")) { "Unknown transaction kind" }
-                if (kind != "EXPENSE") addProperty("quantity", if (kind == "BYPRODUCT" && value("quantity").isBlank()) "0" else quantityInput(value("quantity"), kind == "BYPRODUCT", value("lpg") == "1"))
+                if (kind != "EXPENSE") addProperty("quantity", if (kind == "BYPRODUCT" && value("quantity").isBlank()) "0" else quantityInput(value("quantity"), kind == "BYPRODUCT", false))
                 if (kind == "PURCHASE" || kind == "SALE") {
-                    addProperty("amount", totalInput(value("quantity"), value("price"), value("lpg") == "1"))
+                    addProperty("amount", totalInput(value("quantity"), value("price"), false))
                     addProperty("count", if (value("count").isNotBlank()) count("count", true) else 0)
                 } else {
                     addProperty("amount", moneyInput(value("amount")))

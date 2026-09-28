@@ -11,7 +11,8 @@ An Admin-first implementation of the supplied screen reference, using Kotlin, Je
 - Assigned-business drawer and red Chicken, green Broiler and blue LPG module cards.
 - Chicken/LPG purchase, sale, expense and "Other sale" (byproduct) forms; LPG retail/commercial channel selection.
 - Supplier creation and purchase history; optional supplier on a purchase.
-- Stock and carrying cost; dated transaction history and operation detail.
+- Stock and carrying cost; transaction history that lists **single transactions** (All / Sale / Purchase / Expense / Other sale chips plus Latest / Today / 7 days / This month ranges) with the day overview on a "Days" tab, and operation detail.
+- "Last 5 Sales", "Last 5 Purchases" and "Recent Expenses" tables under the matching entry forms, each with **View all** that opens the history filtered to that type.
 - Close Day confirmation and investor-distribution feedback. A business date also closes and settles itself when it ends (midnight Pakistan time), so a manager never has to close yesterday by hand.
 - Broiler funding-stage batch creation, start confirmation, feed/mortality/expense logs, harvest confirmation and historical batch detail (including harvested batches).
 - Daily/last-seven-days/month-to-date reports, custom dates, per-business filtering and positive-profit chart. Losses remain included in the report table and totals.
@@ -229,12 +230,13 @@ No Hilt, code generation, WebView or bundled mock backend. The financial source 
 - `PUT /api/v1/admin/icons/{key}` — save a screen-icon URL (pass an empty `image_url` to revert to the default icon). When the URL is an `/api/v1/images/{id}` reference, the icon row is associated with that image asset.
 - `GET /api/v1/admin/batches?business_id=...&offset=...&limit=...` — includes historical harvested batches.
 - `GET /api/v1/admin/ledger/{day_id}` — refreshes a specific day including current closure status.
+- `GET /api/v1/admin/operations?business_id=…&kind=…&start=…&end=…&offset=…&limit=…` — individual transactions of one business, newest business date first, each row carrying its business `date`; `kind` serves the last-5 tables and the history type chips. Backed by a new `operations.day_id` index that legacy databases gain automatically.
 
 The database stores the image bytes themselves (BYTEA) plus a short serving URL on each icon/business row; icon lists and the mobile configuration only ever carry URLs, never base64/binary content. Files previously uploaded under `backend/uploads/` continue to be served from the legacy static mount until you run `python -m app.manage migrate-images` and remove them manually (see `../backend/README.md`).
 
 ## Verification status — important
 
-- Backend suite, including database-image upload/serving/migration tests, midnight auto-close/settlement, owner corrections and Retrofit path/query/header contract checks: **46 passed, 1 PostgreSQL-only test skipped** in this sandbox (SQLite; the PostgreSQL run happens in CI and has not been observed).
+- Backend suite, including database-image upload/serving/migration tests, midnight auto-close/settlement, owner corrections and Retrofit path/query/header contract checks: **51 passed, 1 PostgreSQL-only test skipped** in this sandbox (SQLite; the PostgreSQL run happens in CI and has not been observed).
 - All Kotlin files passed structural checks; these checks do not establish compilation or UI correctness.
 - Native source includes JVM test methods for exact money, quantity limits, Unicode, batch rules, server-URL resolution (including `/api/v1/images/…` relative URLs), retry hashing and Retrofit requests/deserialization.
 - **Android Gradle build, JVM tests, lint, emulator UI and device networking have not been executed here.** The sandbox has no JDK/Android SDK and the official tool-download attempts failed. No APK is being claimed as built or verified.

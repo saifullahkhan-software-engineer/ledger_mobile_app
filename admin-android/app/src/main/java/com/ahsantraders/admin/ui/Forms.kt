@@ -19,6 +19,23 @@ fun formTitle(kind: FormKind): String = when (kind) {
     FormKind.HARVEST -> "Harvest batch"; FormKind.SUPPLIER -> "Add supplier"; FormKind.PROFILE -> "Edit profile"; FormKind.PASSWORD -> "Change password"
     FormKind.EDIT_OPERATION -> "Correct transaction"
 }
+/**
+ * "Last 5 Sales / Last 5 Purchases / Recent Expenses" below an entry form.
+ * Data comes from the same transaction feed as the history screen, and
+ * "View all" opens that feed with the matching kind filter.
+ */
+@Composable private fun RecentTransactions(s: AdminState, vm: AdminViewModel) {
+    val kind = s.draft?.kind ?: return
+    val unit = if (s.business?.type == "LPG") "Cylinders" else "KG"
+    val (title, empty) = when (kind) {
+        FormKind.SALE -> "Last 5 Sales" to "No sales recorded yet."
+        FormKind.PURCHASE -> "Last 5 Purchases" to "No purchases recorded yet."
+        FormKind.EXPENSE -> "Recent Expenses" to "No expenses recorded yet."
+        else -> "Last 5 Other Sales" to "No other sales recorded yet."
+    }
+    TransactionTable(title, s.recent, unit, empty) { vm.viewAll(kind.name) }
+}
+
 @Composable fun FormScreen(s: AdminState, vm: AdminViewModel) {
     val draft = s.draft ?: return
     var harvestConfirm by remember { mutableStateOf(false) }
@@ -45,6 +62,7 @@ fun formTitle(kind: FormKind): String = when (kind) {
             if (draft.kind == FormKind.SALE && lpg) Selection("Sale channel", draft.values["channel"].orEmpty(), listOf("RETAIL" to "Retail", "COMMERCIAL" to "Commercial"), !s.saving, translateChoices = true) { vm.field("channel", it) }
             if (draft.kind == FormKind.PURCHASE) Selection("Supplier (optional)", draft.values["supplier_id"].orEmpty(), listOf("" to "None") + s.suppliers.map { it.id to it.name }, !s.saving) { vm.field("supplier_id", it) }
             input("note", "Note", multiline = true)
+            RecentTransactions(s, vm)
         }
         FormKind.EXPENSE, FormKind.BYPRODUCT -> {
             input("date", "Date", hint = "YYYY-MM-DD · ${businessDate()} in Pakistan")
@@ -59,6 +77,7 @@ fun formTitle(kind: FormKind): String = when (kind) {
             }
             input("amount", "Amount (Rs.)", KeyboardType.Decimal, hint = "Enter rupees, e.g. 1250.50 — not paisa")
             input("note", if (draft.kind == FormKind.EXPENSE) "Description" else "Note", multiline = true)
+            RecentTransactions(s, vm)
         }
         FormKind.EDIT_OPERATION -> {
             val kind = draft.values["kind"].orEmpty()

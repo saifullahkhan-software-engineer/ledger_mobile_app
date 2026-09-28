@@ -17,6 +17,7 @@ interface AdminApi {
     @GET("api/v1/admin/ledger/daily") suspend fun days(@Query("business_id") id: String, @Query("offset") offset: Int, @Query("limit") limit: Int = 50): List<Day>
     @GET("api/v1/admin/ledger/{id}") suspend fun day(@Path("id") id: String): Day
     @GET("api/v1/admin/ledger/{id}/operations") suspend fun operations(@Path("id") id: String): List<Operation>
+    @GET("api/v1/admin/operations") suspend fun operationsFeed(@Query("business_id") id: String, @Query("kind") kind: String? = null, @Query("start") start: String? = null, @Query("end") end: String? = null, @Query("offset") offset: Int, @Query("limit") limit: Int = 50): List<Operation>
     @GET("api/v1/admin/operations/{id}") suspend fun operation(@Path("id") id: String): OperationDetail
     @PATCH("api/v1/admin/operations/{id}") suspend fun updateOperation(@Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject): OperationDetail
     @POST("api/v1/admin/ledger/daily") suspend fun daily(@Header("Idempotency-Key") key: String, @Body body: JsonObject): JsonObject

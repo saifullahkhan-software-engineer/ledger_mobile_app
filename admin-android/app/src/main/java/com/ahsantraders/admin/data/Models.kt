@@ -26,7 +26,9 @@ data class Batch(val id: String, val business_id: String, val name: String, val 
 data class Summary(val business: Business, val date: String, val day: Day?, val purchased_quantity: String, val sold_quantity: String, val purchased_count: Int = 0, val sold_count: Int = 0, val byproduct_quantity: String, val byproduct_revenue: Long, val retail_sold: String, val commercial_sold: String, val live_birds: Int, val feed_kg: String, val mortality: Int, val batches: List<Batch>)
 data class Stock(val business_id: String, val quantity: String, val unit: String, val count: Int = 0, val inventory_cost: Long, val live_birds: Int)
 data class Supplier(val id: String, val business_id: String, val name: String, val phone: String?)
-data class Operation(val id: String, val day_id: String, val kind: String, val quantity: String, val amount: Long, val cost: Long, val channel: String?, val note: String, val supplier_id: String?, val created_at: String, val count: Int? = null, val category: String? = null)
+// date is the business date; the transaction feed and the "last 5" tables send
+// it so a flat list of transactions can show a Date column.
+data class Operation(val id: String, val day_id: String, val kind: String, val quantity: String, val amount: Long, val cost: Long, val channel: String?, val note: String, val supplier_id: String?, val created_at: String, val count: Int? = null, val category: String? = null, val date: String? = null)
 data class OperationDetail(val operation: Operation, val day: Day, val business: Business)
 data class BatchLog(val id: String, val date: String, val feed_kg: String, val deaths: Int, val expense: Long, val note: String)
 data class BatchHistory(val batch: Batch, val logs: List<BatchLog>)

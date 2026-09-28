@@ -9,8 +9,11 @@ import java.time.ZoneId
 import java.util.Locale
 
 fun businessDate(): String = LocalDate.now(ZoneId.of("Asia/Karachi")).toString()
-fun rupees(paisa: Long): String = "Rs. " + NumberFormat.getNumberInstance(Locale.US).apply {
-    minimumFractionDigits = 2; maximumFractionDigits = 2
+fun rupees(paisa: Long): String = "Rs. " + amount(paisa)
+
+/** Table amount: whole rupees stay whole (3,500), paisa keeps two places (1,250.50). */
+fun amount(paisa: Long): String = NumberFormat.getNumberInstance(Locale.US).apply {
+    minimumFractionDigits = if (paisa % 100L == 0L) 0 else 2; maximumFractionDigits = 2
 }.format(BigDecimal.valueOf(paisa, 2))
 
 /** Canonical display order: Chicken → LPG (Gas) → Broiler (Poultry). */

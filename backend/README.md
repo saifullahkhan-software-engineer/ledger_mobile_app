@@ -12,7 +12,7 @@ Daily operations record money as the **total price** (weight × per-unit price);
 
 ### Verification performed in the development sandbox
 
-- SQLite API/service integration tests, including Admin client contract coverage, midnight auto-close/settlement, owner corrections of settled dates and the database-image flows (upload, exact-byte serving, MIME validation, malformed/oversized rejection, authorization, assignment/replacement/reset, shared-asset safety, list endpoints never loading image bytes, `migrate-images` legacy import/rerun/interruption paths and the `upgrade-db`/`migrate-images` CLI on old schemas): **46 passed, 1 skipped**.
+- SQLite API/service integration tests, including Admin client contract coverage, the transaction feed (kind/date filters, ordering, pagination, access), midnight auto-close/settlement, owner corrections of settled dates and the database-image flows (upload, exact-byte serving, MIME validation, malformed/oversized rejection, authorization, assignment/replacement/reset, shared-asset safety, list endpoints never loading image bytes, `migrate-images` legacy import/rerun/interruption paths and the `upgrade-db`/`migrate-images` CLI on old schemas): **51 passed, 1 skipped**.
 - Ordered Postman collection executed with Newman: **28 requests, 32 assertions passed**.
 - Tests include concurrent share purchases, concurrent withdrawals, concurrent duplicate settlements, rounding, duplicate-key conflicts, rollback, authorization, password revocation, stock valuation, and batch profit/loss.
 - The skipped test checks PostgreSQL append-only triggers. PostgreSQL/Docker execution was **not verified in this sandbox**: neither was installed, and system package installation failed. CI is configured to run the suite against PostgreSQL 16. Its remote result has not been observed.
@@ -321,6 +321,7 @@ The supplied image is an **Admin UI reference**, not an investor design or a ful
 | Side menu business access | `GET /admin/businesses` returns assigned businesses |
 | Chicken/LPG/broiler summary | `GET /admin/businesses/{id}/summary` |
 | Add sale / purchase / expense | `POST /admin/ledger/daily` with a typed operation |
+| All Transactions list | `GET /admin/operations` lists single transactions newest-date-first; pass `kind` for a type tab |
 | Chicken "Other sale" (shown as Pota-Kaliji in the reference image) | `BYPRODUCT` sales, separate optional weight and revenue |
 | LPG retail / shopkeeper sales | `SALE` with `RETAIL` or `COMMERCIAL` channel |
 | Close Day (PRD, not pictured) | `POST /admin/ledger/close` |
@@ -330,6 +331,7 @@ The supplied image is an **Admin UI reference**, not an investor design or a ful
 | Supplier bills | Supplier directory and recorded purchase history; not a full accounts-payable system |
 | Expenses list | `GET /admin/expenses` for daily businesses; broiler expenses are in batch logs |
 | Daily / weekly / monthly reports | `GET /admin/reports?start=...&end=...` |
+| "Last 5 sales / purchases", recent expenses, transaction history | `GET /admin/operations?business_id=...&kind=...&start=...&end=...` |
 | My profile / language | `GET/PATCH /me`; English and Urdu values supported |
 | Password / logout | `/auth/change-password`, `/auth/logout` |
 | Add manager (ADMIN) / assign business | `POST /admin/managers`, `PUT/DELETE /admin/businesses/{id}/managers/{uid}` (owner only) |

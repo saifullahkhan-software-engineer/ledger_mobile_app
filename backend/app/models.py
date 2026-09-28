@@ -130,7 +130,9 @@ class Day(Base):
 class Operation(Base):
     __tablename__ = "operations"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    day_id: Mapped[str] = mapped_column(ForeignKey("daily_ledgers.id"))
+    # Indexed: the business-wide transaction feed and per-day listings join/filter
+    # on this column as history grows.
+    day_id: Mapped[str] = mapped_column(ForeignKey("daily_ledgers.id"), index=True)
     kind: Mapped[str] = mapped_column(String(20))
     quantity: Mapped[float] = mapped_column(Numeric(18, 3), default=0)
     count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)

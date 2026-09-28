@@ -569,15 +569,16 @@ async def supplier_bills(
     s = await get(db, Supplier, supplier_id)
     await allowed(db, u, s.business_id)
     result = await db.execute(
-        select(Operation)
+        select(Operation, Day.date)
+        .join(Day, Operation.day_id == Day.id)
         .where(Operation.supplier_id == s.id, Operation.kind == "PURCHASE")
-        .order_by(Operation.created_at.desc(), Operation.id)
+        .order_by(Day.date.desc(), Operation.created_at.desc(), Operation.id)
         .offset(offset)
         .limit(limit)
     )
     return [
-        data(r)
-        for r in result.scalars()
+        {**data(row), "date": recorded_on}
+        for row, recorded_on in result.all()
     ]
 
 
@@ -642,6 +643,50 @@ async def operations(day_id: str, db: DB, u=Depends(admin)):
     return [
         data(r)
         for r in result.scalars()
+    ]
+
+
+@app.get("/api/v1/admin/operations", tags=["Operations"])
+async def operation_feed(
+    business_id: str,
+    db: DB,
+    u=Depends(admin),
+    kind: str | None = Query(None, pattern="^(PURCHASE|SALE|BYPRODUCT|EXPENSE)$"),
+    start: date | None = None,
+    end: date | None = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Individual transactions of one business, newest business date first.
+
+    Powers the app's transaction history, the per-form "last 5" tables and any
+    kind-filtered list. Rows carry the business ``date`` (from the day) so a list
+    of transactions does not need the day list to render a date column.
+    """
+    await allowed(db, u, business_id)
+    if start and end and end < start:
+        fail("Invalid date range", 422)
+    query = (
+        select(Operation, Day.date)
+        .join(Day, Operation.day_id == Day.id)
+        .where(Day.business_id == business_id)
+    )
+    if kind:
+        query = query.where(Operation.kind == kind)
+    if start:
+        query = query.where(Day.date >= start)
+    if end:
+        query = query.where(Day.date <= end)
+    result = await db.execute(
+        query.order_by(
+            Day.date.desc(), Operation.created_at.desc(), Operation.id
+        )
+        .offset(offset)
+        .limit(limit)
+    )
+    return [
+        {**data(row), "date": recorded_on}
+        for row, recorded_on in result.all()
     ]
 
 
@@ -1166,17 +1211,17 @@ async def expense_list(
     if end < start or (end - start).days > 366:
         fail("Invalid date range", 422)
     query = (
-        select(Operation)
-        .join(Day)
+        select(Operation, Day.date)
+        .join(Day, Operation.day_id == Day.id)
         .where(
             Day.business_id == business_id,
             Operation.kind == "EXPENSE",
             Day.date.between(start, end),
         )
-        .order_by(Operation.created_at.desc(), Operation.id)
+        .order_by(Day.date.desc(), Operation.created_at.desc(), Operation.id)
     )
     result = await db.execute(query.offset(offset).limit(limit))
-    return [data(r) for r in result.scalars()]
+    return [{**data(row), "date": recorded_on} for row, recorded_on in result.all()]
 
 
 @app.get("/api/v1/admin/batches", tags=["Broiler"])

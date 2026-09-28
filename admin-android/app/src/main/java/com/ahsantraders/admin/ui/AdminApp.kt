@@ -229,9 +229,9 @@ import kotlinx.coroutines.launch
                             )
                             NavigationBarItem(
                                 selected = s.page == Page.LEDGER || s.page == Page.DAY,
-                                onClick = { chooseKind = FormKind.SALE },
-                                icon = { Icon(Icons.Default.PointOfSale, null) },
-                                label = { Text(tr("Sales")) },
+                                onClick = { vm.go(Page.LEDGER) },
+                                icon = { Icon(Icons.Default.ReceiptLong, null) },
+                                label = { Text(tr("History")) },
                                 enabled = !s.saving
                             )
                             NavigationBarItem(

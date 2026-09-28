@@ -2,7 +2,9 @@ package com.ahsantraders.admin.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -15,6 +17,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ahsantraders.admin.data.*
@@ -95,7 +98,7 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            textAlign = TextAlign.Center,
                             maxLines = 2
                         )
                         val row = s.dashboard?.businesses?.find { it.business_id == business.id }
@@ -279,18 +282,103 @@ fun kindLabel(kind: String): String = when (kind) {
     else -> kind.replace('_', ' ')
 }
 
-fun row_price_per_unit(op: Operation): String? {
+fun row_price_per_unit_paisa(op: Operation): Long? {
     if (op.kind == "EXPENSE") return null
     val qty = op.quantity.toBigDecimalOrNull() ?: return null
     if (qty.signum() <= 0) return null
-    return try { rupees(BigDecimal.valueOf(op.amount).divide(qty, 0, RoundingMode.HALF_UP).longValueExact()) }
+    return try { BigDecimal.valueOf(op.amount).divide(qty, 0, RoundingMode.HALF_UP).longValueExact() }
     catch (_: ArithmeticException) { null }
+}
+fun row_price_per_unit(op: Operation): String? = row_price_per_unit_paisa(op)?.let { rupees(it) }
+
+/** Transaction-type colour: sale green, purchase blue, expense orange, other sale red. */
+fun kindColor(kind: String): Color = when (kind) {
+    "SALE" -> Green
+    "PURCHASE" -> Lpg
+    "EXPENSE" -> Color(0xFFE58B19)
+    else -> Chicken
+}
+
+@Composable fun TypeChip(kind: String) {
+    val color = kindColor(kind)
+    Surface(color = color.copy(alpha = .12f), shape = RoundedCornerShape(8.dp)) {
+        Text(tr(kindLabel(kind)), color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+    }
+}
+
+/** Secondary line of a transaction row: weight/price, bird count or why it was spent. */
+fun transactionDetail(row: Operation, unit: String): String {
+    if (row.kind == "EXPENSE") return row.category?.takeIf { it.isNotBlank() } ?: row.note.ifBlank { "—" }
+    val parts = mutableListOf<String>()
+    val qty = row.quantity.toBigDecimalOrNull()
+    if (qty != null && qty.signum() > 0) {
+        parts += "${row.quantity} $unit"
+        row_price_per_unit_paisa(row)?.let { parts += "${amount(it)} / $unit" }
+    }
+    row.count?.takeIf { it > 0 }?.let { parts += "$it birds" }
+    if (row.note.isNotBlank()) parts += row.note
+    return parts.joinToString(" · ").ifBlank { "—" }
+}
+
+/** One transaction of the history list. */
+@Composable fun TransactionRow(row: Operation, unit: String, onClick: () -> Unit) {
+    Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(row.date ?: "", fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text("Rs. " + amount(row.amount), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TypeChip(row.kind)
+                Text(transactionDetail(row, unit), color = Muted, fontSize = 12.sp, maxLines = 2, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** Compact "last 5" / "recent" table used on the entry forms. */
+@Composable fun TransactionTable(title: String, rows: List<Operation>, unit: String, emptyText: String, onViewAll: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(tr(title), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+        if (rows.isNotEmpty()) TextButton(onClick = onViewAll, enabled = true) { Text(tr("View all"), fontSize = 12.sp) }
+    }
+    if (rows.isEmpty()) { Text(tr(emptyText), color = Muted, fontSize = 12.sp); return }
+    val expense = rows.first().kind == "EXPENSE"
+    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            TableLine(if (expense) listOf("Date", "Category", "Amount") else listOf("Date", unit, "Price", "Total"), header = true)
+            rows.forEach { row ->
+                val qty = row.quantity.toBigDecimalOrNull()?.takeIf { it.signum() > 0 }?.let { row.quantity } ?: "—"
+                TableLine(
+                    if (expense) listOf(row.date.orEmpty(), row.category?.takeIf { it.isNotBlank() } ?: "—", amount(row.amount))
+                    else listOf(row.date.orEmpty(), qty, row_price_per_unit_paisa(row)?.let { amount(it) } ?: "—", amount(row.amount))
+                )
+            }
+        }
+    }
+}
+
+@Composable fun TableLine(cells: List<String>, header: Boolean = false) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        cells.forEachIndexed { index, cell ->
+            Text(
+                cell,
+                modifier = Modifier.weight(if (index == 0) 1.05f else 1f),
+                color = if (header) Muted else Ink,
+                fontSize = if (header) 11.sp else 12.sp,
+                fontWeight = if (header) FontWeight.Bold else FontWeight.Normal,
+                textAlign = if (index == 0) TextAlign.Start else TextAlign.End,
+                maxLines = 1
+            )
+        }
+    }
 }
 
 @Composable fun OperationCard(row: Operation, onClick: () -> Unit = {}) {
     Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) { Text(tr(kindLabel(row.kind)), color = Green, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)); Text(rupees(row.amount), fontWeight = FontWeight.Bold) }
+            row.date?.takeIf { it.isNotBlank() }?.let { DataRow("Date", it) }
             if (row.kind != "EXPENSE") DataRow("Weight", row.quantity)
             row.count?.takeIf { it > 0 }?.let { DataRow("Quantity (birds)", it.toString()) }
             row.category?.takeIf { it.isNotBlank() }?.let { DataRow("Category", it) }
@@ -354,7 +442,7 @@ fun row_price_per_unit(op: Operation): String? {
                             angle += sweep
                         }
                     }
-                    Text("Positive\nprofit mix", color = Muted, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Text("Positive\nprofit mix", color = Muted, fontSize = 12.sp, textAlign = TextAlign.Center)
                 }
                 Text("Chart shows positive profits only; losses remain included in totals above.", color = Muted, fontSize = 11.sp)
             }
@@ -390,9 +478,40 @@ fun row_price_per_unit(op: Operation): String? {
                 Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).clip(RoundedCornerShape(6.dp)).background(color))
             }
         }
-        Text(rupees(value), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Ink, textAlign = androidx.compose.ui.text.style.TextAlign.End, modifier = Modifier.width(88.dp))
+        Text(rupees(value), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Ink, textAlign = TextAlign.End, modifier = Modifier.width(88.dp))
     }
 }
+/** Kind and date-range filters of the transaction history. */
+@Composable fun HistoryFilters(s: AdminState, vm: AdminViewModel) {
+    val today = LocalDate.parse(businessDate())
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf("" to "All", "SALE" to "Sale", "PURCHASE" to "Purchase", "EXPENSE" to "Expense", "BYPRODUCT" to "Other sale").forEach { (kind, label) ->
+            FilterChip(
+                selected = s.historyKind == kind,
+                onClick = { vm.setHistoryKind(kind) },
+                label = { Text(tr(label)) },
+                enabled = !s.loading && !s.saving
+            )
+        }
+    }
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        val ranges: List<Triple<String, String?, String?>> = listOf(
+            Triple("Latest", null, null),
+            Triple("Today", today.toString(), today.toString()),
+            Triple("7 days", today.minusDays(6).toString(), today.toString()),
+            Triple("This month", today.withDayOfMonth(1).toString(), today.toString())
+        )
+        ranges.forEach { (label, start, end) ->
+            FilterChip(
+                selected = s.historyStart == start && s.historyEnd == end,
+                onClick = { vm.setHistoryRange(start, end) },
+                label = { Text(tr(label)) },
+                enabled = !s.loading && !s.saving
+            )
+        }
+    }
+}
+
 @Composable fun SecondaryScreen(s: AdminState, vm: AdminViewModel, confirmClose: (Day) -> Unit) {
     when (s.page) {
         Page.STOCK -> s.stock?.let { stock ->
@@ -402,14 +521,33 @@ fun row_price_per_unit(op: Operation): String? {
             Text("Stock changes when you record operations. Negative stock is not allowed.", color = Muted, fontSize = 12.sp)
         }
         Page.LEDGER -> {
-            if (s.days.isEmpty() && !s.loading) Empty()
-            s.days.forEach { day -> Card(onClick = { vm.openDay(day) }, colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row { Text(day.date, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold); Status(day.status) }
-                    DataRow("Revenue", rupees(day.revenue)); DataRow("Net profit", rupees(day.profit))
-                    day.variance?.takeIf { it != 0L }?.let { Text("Corrected after settlement — difference ${rupees(it)}", color = Muted, fontSize = 11.sp) }
+            // Single transactions by default; the day overview stays one tap away.
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Transactions" to "TRANSACTIONS", "Days" to "DAYS").forEach { (label, view) ->
+                    FilterChip(
+                        selected = s.historyView == view,
+                        onClick = { vm.setHistoryView(view) },
+                        label = { Text(tr(label)) },
+                        enabled = !s.loading && !s.saving
+                    )
                 }
-            } }; MoreButton(s, vm)
+            }
+            if (s.historyView == "DAYS") {
+                if (s.days.isEmpty() && !s.loading) Empty()
+                s.days.forEach { day -> Card(onClick = { vm.openDay(day) }, colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                    Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row { Text(day.date, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold); Status(day.status) }
+                        DataRow("Revenue", rupees(day.revenue)); DataRow("Net profit", rupees(day.profit))
+                        day.variance?.takeIf { it != 0L }?.let { Text("Corrected after settlement — difference ${rupees(it)}", color = Muted, fontSize = 11.sp) }
+                    }
+                } }
+            } else {
+                HistoryFilters(s, vm)
+                val unit = if (s.business?.type == "LPG") "cylinders" else "kg"
+                if (s.operations.isEmpty() && !s.loading) Empty("No transactions in this range")
+                s.operations.forEach { row -> TransactionRow(row, unit) { vm.openOperation(row, s.page) } }
+            }
+            MoreButton(s, vm)
         }
         Page.DAY -> {
             s.day?.let { day ->

@@ -29,9 +29,21 @@ def ensure_column_on_connection(conn, table, column, ddl):
             raise
 
 
+def ensure_index_on_connection(conn, table, name, columns):
+    """Create one missing index on an existing table; repeatable and additive."""
+    if not inspect(conn).has_table(table):
+        return
+    if any(index["name"] == name for index in inspect(conn).get_indexes(table)):
+        return
+    conn.execute(
+        text(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({', '.join(columns)})")
+    )
+
+
 def ensure_additive_columns_on_connection(conn):
     """Self-heal legacy databases: icon column, bird count, expense category,
-    and counted stock. Safe to run on every connection; never touches data."""
+    counted stock and the operation history index. Safe to run on every
+    connection; never touches data."""
     if not inspect(conn).has_table("businesses"):
         return
     ensure_business_icon_column_on_connection(conn)
@@ -40,6 +52,7 @@ def ensure_additive_columns_on_connection(conn):
     ensure_column_on_connection(
         conn, "businesses", "stock_count", "stock_count INTEGER NOT NULL DEFAULT 0"
     )
+    ensure_index_on_connection(conn, "operations", "ix_operations_day_id", ["day_id"])
 
 
 async def ensure_business_icon_column():

@@ -55,6 +55,10 @@ owner-only screens for non-owner accounts.
    python -m app.manage migrate-images   # import legacy uploads/ files into the DB
    ```
 
+   To wipe every record but keep the owner and manager accounts,
+   `python -m app.manage clear-data` prints a dry run first; `--yes` deletes.
+   See the "Clearing all data" section in [`backend/README.md`](backend/README.md).
+
 2. **Admin app** — open [`admin-android/`](admin-android/README.md) in Android Studio
    and run it. Sign in with the owner credentials from `seed`. Use the owner-only
    **Users** and **Screen icons** entries in the drawer to create managers and
@@ -67,7 +71,7 @@ client's API contract against the live OpenAPI schema:
 
 ```bash
 cd backend
-python -m pytest -q     # 55 passed, 1 PostgreSQL-only skipped (SQLite; PostgreSQL in CI)
+python -m pytest -q     # 61 passed, 2 PostgreSQL-only skipped (SQLite; PostgreSQL in CI)
 ```
 
 ## Before real-money use

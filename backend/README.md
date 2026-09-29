@@ -12,10 +12,10 @@ Daily operations record money as the **total price** (weight × per-unit price);
 
 ### Verification performed in the development sandbox
 
-- SQLite API/service integration tests, including Admin client contract coverage, the transaction feed (kind/date filters, ordering, pagination, access), day-summary navigation (past/today/future, gaps, bounds, no rows created for future dates), midnight auto-close/settlement, owner corrections of settled dates and the database-image flows (upload, exact-byte serving, MIME validation, malformed/oversized rejection, authorization, assignment/replacement/reset, shared-asset safety, list endpoints never loading image bytes, `migrate-images` legacy import/rerun/interruption paths and the `upgrade-db`/`migrate-images` CLI on old schemas): **55 passed, 1 skipped**.
+- SQLite API/service integration tests, including Admin client contract coverage, the transaction feed (kind/date filters, ordering, pagination, access), day-summary navigation (past/today/future, gaps, bounds, no rows created for future dates), midnight auto-close/settlement, owner corrections of settled dates and the database-image flows (upload, exact-byte serving, MIME validation, malformed/oversized rejection, authorization, assignment/replacement/reset, shared-asset safety, list endpoints never loading image bytes, `migrate-images` legacy import/rerun/interruption paths, the `upgrade-db`/`migrate-images` CLI on old schemas and the `clear-data` reset (dry run, confirmation, what is kept/deleted, business and icon options, refusal when no account would be kept, and a working API afterwards): **61 passed, 2 skipped**.
 - Ordered Postman collection executed with Newman: **28 requests, 32 assertions passed**.
 - Tests include concurrent share purchases, concurrent withdrawals, concurrent duplicate settlements, rounding, duplicate-key conflicts, rollback, authorization, password revocation, stock valuation, and batch profit/loss.
-- The skipped test checks PostgreSQL append-only triggers. PostgreSQL/Docker execution was **not verified in this sandbox**: neither was installed, and system package installation failed. CI is configured to run the suite against PostgreSQL 16. Its remote result has not been observed.
+- The two skipped tests check PostgreSQL append-only triggers: that history cannot be deleted directly, and that `clear-data` restores those triggers after using them. PostgreSQL/Docker execution was **not verified in this sandbox**: neither was installed, and system package installation failed. CI is configured to run the suite against PostgreSQL 16. Its remote result has not been observed.
 - Test dependencies currently emit third-party deprecation warnings; tests pass.
 
 ## 1. Recommended local run: Docker + PostgreSQL
@@ -219,6 +219,60 @@ backups for the additional image data (≤ 2 MB per upload).
 and is not required to run this app. Its registry-access error does not
 cause any of the errors above; you can omit that command.
 
+### Clearing all data (keep the owner and the managers)
+
+`clear-data` removes every business record while **keeping the SUPERADMIN
+(owner) and ADMIN (manager) accounts**, so an installation can start over
+without recreating logins or reassigning businesses to managers.
+
+**Take a backup first** (`pg_dump`, or a copy of the SQLite file), stop the
+API and any `auto-close-days` cron, then run from `backend/`:
+
+```bash
+python -m app.manage clear-data          # dry run: prints exactly what would go
+python -m app.manage clear-data --yes    # asks you to type DELETE, then deletes
+```
+
+With Docker Compose: `docker compose run --rm api python -m app.manage clear-data --yes`.
+
+| Deleted | Kept |
+|---|---|
+| `operations`, `daily_ledgers`, `suppliers`, `batches`, `batch_logs`, `share_ledger`, `journal`, `postings`, `settlements`, `withdrawals`, `idempotency` | `write_lock` (the API's serialization row, not data) |
+| every `users` row that is not SUPERADMIN/ADMIN (investors), and the `admin_assignments` rows of those accounts | SUPERADMIN and ADMIN accounts and their business assignments |
+| — | `businesses`, with `stock`, `stock_cost` and `stock_count` reset to 0 |
+| — | `app_icons` and `image_assets` (screen icons and uploaded images) |
+
+Flags:
+
+| Flag | Effect |
+|---|---|
+| `--yes` | actually delete; without it the command only prints the plan |
+| `--force` | skip the typed `DELETE` confirmation (with `--yes`, for scripts) |
+| `--keep-roles SUPERADMIN,ADMIN` | which roles survive (default shown) |
+| `--delete-businesses` | also delete the businesses and every manager assignment |
+| `--clear-images` | also delete `app_icons`/`image_assets`; the app then falls back to its bundled default icons |
+| `--force-relogin` | bump `token_version` on the kept accounts so signed-in devices must log in again |
+
+Notes:
+
+- Everything happens in **one serialized transaction** (the same `write_lock`
+  the API takes), so it either completes fully or leaves the database
+  untouched. The dry run only counts rows and rolls its transaction back.
+- The command **refuses to run when no account matches the kept roles** — it
+  never deletes every user. Run `python -m app.manage seed` to recreate an
+  owner if you cleared with a role that no longer exists.
+- On PostgreSQL the append-only `immutable_history` triggers on `journal`,
+  `postings`, `share_ledger` and `settlements` are disabled **for that
+  transaction only** and re-enabled before it commits; foreign-key
+  enforcement stays on the whole time. Run as the role that owns the tables
+  (the user in `DATABASE_URL`) — if the guard cannot be lifted the command
+  aborts and deletes nothing.
+- Icons and images are **kept by default** because the Admin app still reads
+  them from the database (`GET /api/v1/admin/icons`, `/api/v1/images/{id}`)
+  and only falls back to its bundled artwork when the database holds none.
+  Pass `--clear-images` for a full visual reset as well.
+- Files left under `backend/uploads/` are not touched by this command.
+
 ## 3. Test using Swagger (no coding needed)
 
 1. Open `/docs` and execute `POST /api/v1/auth/login` with the owner phone/password entered during seed.
@@ -406,7 +460,7 @@ backend/
     security.py    Argon2 passwords, expiring JWTs and role dependencies
     services.py    inventory, journal, idempotency and settlement logic
     main.py        API routes and reports
-    manage.py      explicit schema/data migrations and owner initialization
+    manage.py      explicit schema/data migrations, owner initialization and the clear-data reset
   tests/           API, transaction and concurrency tests
   postman/         tested ordered request collection
   scripts/         API export generator

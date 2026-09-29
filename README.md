@@ -71,7 +71,7 @@ client's API contract against the live OpenAPI schema:
 
 ```bash
 cd backend
-python -m pytest -q     # 61 passed, 2 PostgreSQL-only skipped (SQLite; PostgreSQL in CI)
+python -m pytest -q     # 61 passed, 2 PostgreSQL-only skipped (SQLite; 63 passed on PostgreSQL)
 ```
 
 ## Before real-money use

@@ -327,6 +327,29 @@ def test_clear_data_restores_append_only_triggers(client):
     add_records()
     assert run_clear("--yes", "--force").returncode == 0
 
+    # The reset lifts the guard for its own transaction only: the catalog must
+    # show every append-only trigger enabled again ('O' = origin mode).
+    with sync_engine.connect() as conn:
+        enabled = dict(
+            conn.execute(
+                text(
+                    "SELECT c.relname, t.tgenabled FROM pg_trigger t "
+                    "JOIN pg_class c ON c.oid = t.tgrelid "
+                    "WHERE t.tgname = 'immutable_history'"
+                )
+            ).all()
+        )
+    assert enabled == {
+        table: "O" for table in ("journal", "postings", "settlements", "share_ledger")
+    }
+
+    # The trigger is row-level, so it only fires for a row that exists: the
+    # reset left these tables empty, so add one and check the guard rejects it.
+    with Session.begin() as db:
+        db.add(Journal(id="jr-2", reference="after-reset", kind="SETTLEMENT"))
+        db.flush()
+        db.add(Posting(id="pg-3", journal_id="jr-2", account="wallet:x", amount=10))
+
     with pytest.raises(Exception, match="append-only"):
         with sync_engine.begin() as conn:
             conn.execute(text("DELETE FROM postings"))

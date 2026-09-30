@@ -56,10 +56,23 @@ def test_daily_settlement_and_idempotency(client, admin_headers, investor_header
     with Session() as db:
         assert db.scalar(select(func.sum(Posting.amount))) == 0
         assert db.scalar(select(func.count(Settlement.id))) == 1
+    # Managers cannot add to a closed date; the super admin can (it rebuilds
+    # the summary and leaves the settled payout unchanged).
+    assert (
+        client.put(
+            P + "/admin/businesses/chicken/managers/manager", headers=admin_headers
+        ).status_code
+        == 200
+    )
+    manager = client.post(
+        P + "/auth/login",
+        json={"phone": "+923001234568", "password": "AdminTest123!"},
+    ).json()
+    manager_h = {"Authorization": "Bearer " + manager["access_token"]}
     post(
         client,
         "/admin/ledger/daily",
-        admin_headers,
+        manager_h,
         {
             "business_id": "chicken",
             "date": str(today()),

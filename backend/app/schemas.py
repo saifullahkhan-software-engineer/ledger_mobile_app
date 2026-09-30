@@ -59,10 +59,11 @@ class SupplierCreate(Input):
 class DailyInput(Input):
     business_id: str
     date: date
-    kind: Literal["PURCHASE", "SALE", "BYPRODUCT", "EXPENSE"]
+    kind: Literal["PURCHASE", "SALE", "BYPRODUCT", "EXPENSE", "WASTAGE"]
     quantity: Quantity = Decimal(0)
     count: Count | None = None
-    amount: PositiveMoney
+    wastage: Quantity = Decimal(0)
+    amount: Money = 0
     category: Annotated[str, Field(max_length=50)] | None = None
     channel: Literal["RETAIL", "COMMERCIAL"] | None = None
     note: Note = ""
@@ -72,9 +73,17 @@ class DailyInput(Input):
 class OperationUpdate(Input):
     quantity: Quantity | None = None
     count: Count | None = None
-    amount: PositiveMoney | None = None
+    wastage: Quantity | None = None
+    amount: Money | None = None
     category: Annotated[str, Field(max_length=50)] | None = None
     note: Note | None = None
+
+
+class StockUpdate(Input):
+    business_id: str
+    quantity: Quantity
+    count: Count = 0
+    inventory_cost: Money
 
 
 class CloseDay(Input):

@@ -48,11 +48,11 @@ fun quantityInput(text: String, zeroAllowed: Boolean = false, whole: Boolean = f
     require(value.stripTrailingZeros().scale() <= if (whole) 0 else 3) { if (whole) "Enter a whole number" else "Use at most three decimal places" }
     return value.toPlainString()
 }
-enum class FormKind { SALE, PURCHASE, EXPENSE, BYPRODUCT, BATCH_CREATE, BATCH_LOG, HARVEST, SUPPLIER, PROFILE, PASSWORD, EDIT_OPERATION }
+enum class FormKind { SALE, PURCHASE, EXPENSE, BYPRODUCT, WASTAGE, BATCH_CREATE, BATCH_LOG, HARVEST, SUPPLIER, PROFILE, PASSWORD, EDIT_OPERATION, EDIT_STOCK }
 
 val EXPENSE_CATEGORIES = listOf("Worker Salary", "Electricity", "Ice / Cold", "Transport", "Feed", "Rent", "Other")
 
-/** Total price in paisa = weight (kg) × per-unit price; profit always uses this total, never the weight alone. */
+/** Harvest estimate only: yield (kg) × per-kg price. Shop sales and purchases use a fixed amount. */
 fun totalInput(quantityText: String, priceText: String, whole: Boolean): Long {
     val kg = BigDecimal(quantityInput(quantityText, false, whole))
     val price = moneyInput(priceText)
@@ -64,7 +64,7 @@ fun totalInput(quantityText: String, priceText: String, whole: Boolean): Long {
 data class Draft(val kind: FormKind, val values: Map<String, String> = emptyMap())
 
 /** UI uses rupees; only this boundary converts to exact integer paisa. */
-fun formBody(draft: Draft, business: Business?, batch: Batch?, today: String = businessDate()): JsonObject {
+fun formBody(draft: Draft, business: Business?, batch: Batch?, today: String = businessDate(), allowPastDate: Boolean = false): JsonObject {
     val v = draft.values
     fun value(key: String) = v[key].orEmpty()
     fun name(key: String): String = value(key).also { require(it.isNotBlank() && it.length <= 120) { "Name is required (maximum 120 characters)" } }
@@ -78,14 +78,24 @@ fun formBody(draft: Draft, business: Business?, batch: Batch?, today: String = b
     }
     return JsonObject().apply {
         when (draft.kind) {
-            FormKind.SALE, FormKind.PURCHASE -> {
+            FormKind.SALE, FormKind.PURCHASE, FormKind.WASTAGE -> {
                 val b = requireNotNull(business) { "Choose a business" }
                 require(b.type != "BROILER") { "Use batch logs for broiler expenses" }
-                require(date() == today) { "Daily records must use today's Pakistan date" }
-                addProperty("business_id", b.id); addProperty("date", date()); addProperty("kind", draft.kind.name)
+                val on = date()
+                require(on <= today) { "Daily records cannot use a future date" }
+                require(on == today || allowPastDate) { "Only the super admin can add a record to a previous date" }
+                addProperty("business_id", b.id); addProperty("date", on); addProperty("kind", draft.kind.name)
                 addProperty("quantity", quantityInput(value("quantity"), false, false))
-                addProperty("amount", totalInput(value("quantity"), value("price"), false))
+                if (draft.kind == FormKind.WASTAGE) {
+                    require(b.type == "CHICKEN") { "Wastage is only recorded in the chicken shop" }
+                    addProperty("amount", 0)
+                } else {
+                    addProperty("amount", moneyInput(value("amount")))
+                }
                 if (value("count").isNotBlank()) addProperty("count", count("count"))
+                if (draft.kind == FormKind.SALE && b.type == "CHICKEN" && value("wastage").isNotBlank()) {
+                    addProperty("wastage", quantityInput(value("wastage"), true, false))
+                }
                 if (b.type == "LPG" && draft.kind == FormKind.SALE) {
                     require(value("channel") in listOf("RETAIL", "COMMERCIAL")) { "Choose a sale channel" }
                     addProperty("channel", value("channel"))
@@ -97,7 +107,9 @@ fun formBody(draft: Draft, business: Business?, batch: Batch?, today: String = b
             FormKind.EXPENSE, FormKind.BYPRODUCT -> {
                 val b = requireNotNull(business) { "Choose a business" }
                 require(b.type != "BROILER") { "Use batch logs for broiler expenses" }
-                require(date() == today) { "Daily records must use today's Pakistan date" }
+                val on = date()
+                require(on <= today) { "Daily records cannot use a future date" }
+                require(on == today || allowPastDate) { "Only the super admin can add a record to a previous date" }
                 addProperty("business_id", b.id); addProperty("date", date()); addProperty("kind", draft.kind.name)
                 addProperty("amount", moneyInput(value("amount")))
                 // "Other sale" is any extra income: weight is optional, the
@@ -112,10 +124,14 @@ fun formBody(draft: Draft, business: Business?, batch: Batch?, today: String = b
             }
             FormKind.EDIT_OPERATION -> {
                 val kind = value("kind")
-                require(kind in listOf("PURCHASE", "SALE", "BYPRODUCT", "EXPENSE")) { "Unknown transaction kind" }
+                require(kind in listOf("PURCHASE", "SALE", "BYPRODUCT", "EXPENSE", "WASTAGE")) { "Unknown transaction kind" }
                 if (kind != "EXPENSE") addProperty("quantity", if (kind == "BYPRODUCT" && value("quantity").isBlank()) "0" else quantityInput(value("quantity"), kind == "BYPRODUCT", false))
                 if (kind == "PURCHASE" || kind == "SALE") {
-                    addProperty("amount", totalInput(value("quantity"), value("price"), false))
+                    addProperty("amount", moneyInput(value("amount")))
+                    addProperty("count", if (value("count").isNotBlank()) count("count", true) else 0)
+                    if (kind == "SALE" && value("lpg") != "1") addProperty("wastage", if (value("wastage").isNotBlank()) quantityInput(value("wastage"), true, false) else "0")
+                } else if (kind == "WASTAGE") {
+                    addProperty("amount", 0)
                     addProperty("count", if (value("count").isNotBlank()) count("count", true) else 0)
                 } else {
                     addProperty("amount", moneyInput(value("amount")))
@@ -126,6 +142,14 @@ fun formBody(draft: Draft, business: Business?, batch: Batch?, today: String = b
                 }
                 require(value("note").length <= 1000) { "Note must be at most 1,000 characters" }
                 addProperty("note", value("note"))
+            }
+            FormKind.EDIT_STOCK -> {
+                val b = requireNotNull(business) { "Choose a business" }
+                require(b.type != "BROILER") { "Broiler stock is managed through batches" }
+                addProperty("business_id", b.id)
+                addProperty("quantity", quantityInput(value("quantity"), true, false))
+                addProperty("count", if (value("count").isNotBlank()) count("count", true) else 0)
+                addProperty("inventory_cost", moneyInput(value("amount"), true))
             }
             FormKind.SUPPLIER -> {
                 addProperty("business_id", requireNotNull(business).id); addProperty("name", name("name"))

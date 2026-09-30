@@ -245,7 +245,7 @@ async def recompute_day_totals(db, day):
     result = await db.execute(select(Operation).where(Operation.day_id == day.id))
     rows = result.scalars().all()
     day.revenue = sum(r.amount for r in rows if r.kind in ("SALE", "BYPRODUCT"))
-    day.cost = sum(r.cost for r in rows if r.kind == "SALE")
+    day.cost = sum(r.cost for r in rows if r.kind in ("SALE", "WASTAGE"))
     day.expenses = sum(r.amount for r in rows if r.kind == "EXPENSE")
     if day.status == "CLOSED":
         # The day is settled, so its summary profit follows the corrected records.
@@ -254,12 +254,39 @@ async def recompute_day_totals(db, day):
     return day
 
 
+def allocated_cost(b, outgoing):
+    """Weighted-average cost of goods leaving stock. Last unit takes remaining paisa."""
+    outgoing = Decimal(outgoing)
+    stock = Decimal(b.stock)
+    if outgoing <= 0:
+        return 0
+    if outgoing > stock:
+        fail("Insufficient stock")
+    if outgoing == stock:
+        return int(b.stock_cost)
+    return int(
+        (Decimal(b.stock_cost) * outgoing / stock).quantize(
+            Decimal(1), rounding=ROUND_HALF_UP
+        )
+    )
+
+
+def _cash_for(kind, amount):
+    if kind in ("SALE", "BYPRODUCT"):
+        return amount
+    if kind in ("PURCHASE", "EXPENSE"):
+        return -amount
+    return 0
+
+
 async def operation(db, user, p):
     b = await allowed(db, user, p.business_id)
     if b.type == "BROILER":
         fail("Use batch operations for broiler")
-    if p.date != today():
-        fail("Daily records must use the current Asia/Karachi business date", 422)
+    if p.date > today():
+        fail("Daily records cannot use a future date", 422)
+    if p.date != today() and user.role != "SUPERADMIN":
+        fail("Only the super admin can add a record to a previous date", 422)
     # Midnight rule: days past their business date settle themselves before the
     # first record of the new date is written.
     await auto_close_due_days(db, b.id)
@@ -273,7 +300,7 @@ async def operation(db, user, p):
         fail("Close the previous open day first")
     result = await db.execute(select(Day).where(Day.business_id == b.id, Day.date == p.date))
     day = result.scalar_one_or_none()
-    if day and day.status != "OPEN":
+    if day and day.status != "OPEN" and user.role != "SUPERADMIN":
         fail("Day is already closed")
     if not day:
         day = Day(business_id=b.id, date=p.date)
@@ -283,19 +310,32 @@ async def operation(db, user, p):
         supplier = await get(db, Supplier, p.supplier_id)
         if supplier.business_id != b.id:
             fail("Supplier belongs to another business", 422)
-    if p.kind in ("PURCHASE", "SALE") and p.quantity <= 0:
+    if p.kind in ("PURCHASE", "SALE", "WASTAGE") and p.quantity <= 0:
         fail("Positive quantity required", 422)
+    if p.kind != "WASTAGE" and p.amount <= 0:
+        fail("Positive amount required", 422)
+    if p.kind == "WASTAGE":
+        if b.type != "CHICKEN":
+            fail("Wastage is chicken-only", 422)
+        if p.amount:
+            fail("Wastage cannot have a sale amount", 422)
+        if p.channel:
+            fail("Wastage cannot have a sale channel", 422)
     if b.type == "LPG" and p.kind == "BYPRODUCT":
         fail("Byproduct sales are chicken-only", 422)
     if b.type == "LPG" and p.kind == "SALE" and not p.channel:
         fail("LPG sales require RETAIL or COMMERCIAL channel", 422)
     if p.kind == "EXPENSE" and p.quantity:
         fail("Expenses cannot change stock", 422)
+    wastage = p.wastage or Decimal(0)
+    if wastage:
+        if b.type != "CHICKEN" or p.kind != "SALE":
+            fail("Wastage is only supported on chicken sales", 422)
     if p.count is not None:
         if b.type not in ("CHICKEN", "LPG"):
             fail("Count is only supported for chicken and LPG businesses", 422)
-        if p.kind not in ("PURCHASE", "SALE"):
-            fail("Count is only supported for purchases and sales", 422)
+        if p.kind not in ("PURCHASE", "SALE", "WASTAGE"):
+            fail("Count is only supported for purchases, sales and wastage", 422)
     if p.category is not None and p.kind != "EXPENSE":
         fail("Category is only supported for expenses", 422)
     cost = 0
@@ -304,24 +344,23 @@ async def operation(db, user, p):
         b.stock_cost += p.amount
         b.stock_count += p.count or 0
     elif p.kind == "SALE":
-        if p.quantity > b.stock:
-            fail("Insufficient stock")
+        outgoing = p.quantity + wastage
         if (p.count or 0) > b.stock_count:
             fail("Insufficient bird count in stock", 422)
-        cost = (
-            b.stock_cost
-            if p.quantity == b.stock
-            else int(
-                (Decimal(b.stock_cost) * p.quantity / b.stock).quantize(
-                    Decimal(1), rounding=ROUND_HALF_UP
-                )
-            )
-        )
-        b.stock -= p.quantity
+        cost = allocated_cost(b, outgoing)
+        b.stock -= outgoing
         b.stock_cost -= cost
         b.stock_count -= p.count or 0
         day.cost += cost
         day.revenue += p.amount
+    elif p.kind == "WASTAGE":
+        if (p.count or 0) > b.stock_count:
+            fail("Insufficient bird count in stock", 422)
+        cost = allocated_cost(b, p.quantity)
+        b.stock -= p.quantity
+        b.stock_cost -= cost
+        b.stock_count -= p.count or 0
+        day.cost += cost
     elif p.kind == "BYPRODUCT":
         day.revenue += p.amount
     else:
@@ -331,32 +370,53 @@ async def operation(db, user, p):
     )
     db.add(row)
     await db.flush()
-    cash = p.amount if p.kind in ("SALE", "BYPRODUCT") else -p.amount
-    await journal(
-        db,
-        f"operation:{row.id}",
-        p.kind,
-        {f"business:{b.id}": cash, "external:operations": -cash},
-    )
-    return {"operation": data(row), "day": data(day), "stock": data(b)}
+    cash = _cash_for(p.kind, p.amount)
+    if cash:
+        await journal(
+            db,
+            f"operation:{row.id}",
+            p.kind,
+            {f"business:{b.id}": cash, "external:operations": -cash},
+        )
+    # A super-admin write onto a previous closed date rebuilds the summary but
+    # never reopens it or rewrites the payout. A brand-new past date (a gap)
+    # is closed and settled the same way midnight would have.
+    if day.status == "CLOSED":
+        await recompute_day_totals(db, day)
+    elif day.date <= cutoff_date():
+        await close_day_record(db, b, day)
+    return {
+        "operation": data(row),
+        "day": await day_payload(db, day),
+        "stock": data(b),
+        "business": data(b),
+    }
 
 
-def _apply_operation_effect(b, day, kind, quantity, amount, cost, count, sign):
+def _apply_operation_effect(b, day, kind, quantity, amount, cost, count, sign, wastage=0):
     # sign=-1 reverses a recorded effect, sign=+1 applies it. Money always
     # moves as the recorded total price; weight/count only move stock.
+    quantity = Decimal(quantity or 0)
+    wastage = Decimal(wastage or 0)
     if kind == "PURCHASE":
         b.stock += sign * quantity
         b.stock_cost += sign * amount
         b.stock_count += sign * (count or 0)
     elif kind == "SALE":
-        b.stock -= sign * quantity
+        outgoing = quantity + wastage
+        b.stock -= sign * outgoing
         b.stock_cost -= sign * cost
         b.stock_count -= sign * (count or 0)
         day.cost += sign * cost
         day.revenue += sign * amount
+    elif kind == "WASTAGE":
+        b.stock -= sign * quantity
+        b.stock_cost -= sign * cost
+        b.stock_count -= sign * (count or 0)
+        day.cost += sign * cost
     elif kind == "BYPRODUCT":
         day.revenue += sign * amount
-    else:
+    elif kind == "EXPENSE":
         day.expenses += sign * amount
 
 
@@ -373,39 +433,44 @@ async def edit_operation(db, user, operation_id, p):
     provided = p.model_fields_set
     quantity = p.quantity if "quantity" in provided else op.quantity
     count = p.count if "count" in provided else op.count
+    wastage = p.wastage if "wastage" in provided else (op.wastage or 0)
     amount = p.amount if "amount" in provided else op.amount
     category = p.category if "category" in provided else op.category
     note = p.note if "note" in provided else op.note
     kind = op.kind
-    if kind in ("PURCHASE", "SALE") and quantity <= 0:
+    if kind in ("PURCHASE", "SALE", "WASTAGE") and quantity <= 0:
         fail("Positive quantity required", 422)
+    if kind != "WASTAGE" and amount <= 0:
+        fail("Positive amount required", 422)
+    if kind == "WASTAGE" and amount:
+        fail("Wastage cannot have a sale amount", 422)
     if kind == "EXPENSE" and quantity:
         fail("Expenses cannot change stock", 422)
-    if count is not None and (b.type not in ("CHICKEN", "LPG") or kind not in ("PURCHASE", "SALE")):
-        fail("Count is only supported for chicken and LPG purchases and sales", 422)
+    if wastage and (b.type != "CHICKEN" or kind != "SALE"):
+        fail("Wastage is only supported on chicken sales", 422)
+    if count is not None and (
+        b.type not in ("CHICKEN", "LPG") or kind not in ("PURCHASE", "SALE", "WASTAGE")
+    ):
+        fail("Count is only supported for chicken and LPG purchases, sales and wastage", 422)
     if category is not None and kind != "EXPENSE":
         fail("Category is only supported for expenses", 422)
-    _apply_operation_effect(b, day, kind, op.quantity, op.amount, op.cost, op.count, -1)
+    _apply_operation_effect(
+        b, day, kind, op.quantity, op.amount, op.cost, op.count, -1, op.wastage or 0
+    )
     new_cost = 0
     if kind == "SALE":
-        if quantity > b.stock:
-            fail("Insufficient stock", 422)
         if (count or 0) > b.stock_count:
             fail("Insufficient bird count in stock", 422)
-        new_cost = (
-            b.stock_cost
-            if quantity == b.stock
-            else int(
-                (Decimal(b.stock_cost) * quantity / b.stock).quantize(
-                    Decimal(1), rounding=ROUND_HALF_UP
-                )
-            )
-        )
-    _apply_operation_effect(b, day, kind, quantity, amount, new_cost, count, +1)
+        new_cost = allocated_cost(b, Decimal(quantity) + Decimal(wastage or 0))
+    elif kind == "WASTAGE":
+        if (count or 0) > b.stock_count:
+            fail("Insufficient bird count in stock", 422)
+        new_cost = allocated_cost(b, quantity)
+    _apply_operation_effect(b, day, kind, quantity, amount, new_cost, count, +1, wastage or 0)
     if b.stock < 0 or b.stock_cost < 0 or b.stock_count < 0:
         fail("Correction would make stock negative", 422)
-    old_cash = op.amount if kind in ("SALE", "BYPRODUCT") else -op.amount
-    new_cash = amount if kind in ("SALE", "BYPRODUCT") else -amount
+    old_cash = _cash_for(kind, op.amount)
+    new_cash = _cash_for(kind, amount)
     delta = new_cash - old_cash
     if delta:
         await journal(
@@ -416,6 +481,7 @@ async def edit_operation(db, user, operation_id, p):
         )
     op.quantity = quantity
     op.count = count
+    op.wastage = wastage or 0
     op.amount = amount
     op.cost = new_cost
     op.category = category
@@ -427,6 +493,39 @@ async def edit_operation(db, user, operation_id, p):
         "day": await day_payload(db, day),
         "business": data(b),
         "stock": data(b),
+    }
+
+
+async def update_stock(db, user, p):
+    """Set current inventory: weight, counted units and carrying price."""
+    b = await allowed(db, user, p.business_id)
+    if b.type == "BROILER":
+        fail("Broiler stock is managed through batches", 422)
+    old_cost = int(b.stock_cost)
+    b.stock = p.quantity
+    b.stock_count = p.count
+    b.stock_cost = p.inventory_cost
+    delta = int(p.inventory_cost) - old_cost
+    if delta:
+        await journal(
+            db,
+            f"stock-adjust:{b.id}:{uid()}",
+            "STOCK_ADJUSTMENT",
+            {f"business:{b.id}": -delta, "external:operations": delta},
+        )
+    await db.flush()
+    result = await db.execute(
+        select(Batch).where(Batch.business_id == b.id, Batch.status != "HARVESTED")
+    )
+    batches = result.scalars().all()
+    return {
+        "business_id": b.id,
+        "quantity": b.stock,
+        "unit": "kg" if b.type in ("CHICKEN", "LPG") else "birds",
+        "count": b.stock_count,
+        "inventory_cost": b.stock_cost,
+        "live_birds": sum(x.chicks - x.deaths for x in batches),
+        "business": data(b),
     }
 
 

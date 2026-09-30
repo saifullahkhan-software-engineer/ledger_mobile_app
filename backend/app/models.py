@@ -98,6 +98,7 @@ class Operation(Base):
     kind: Mapped[str] = mapped_column(String(20))
     quantity: Mapped[float] = mapped_column(Numeric(18, 3), default=0)
     count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    wastage: Mapped[float] = mapped_column(Numeric(18, 3), default=0)
     amount: Mapped[int] = mapped_column(BigInteger)
     cost: Mapped[int] = mapped_column(BigInteger, default=0)
     category: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)

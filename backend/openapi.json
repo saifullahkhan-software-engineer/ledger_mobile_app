@@ -915,6 +915,61 @@
             }
           }
         }
+      },
+      "put": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Stock Update",
+        "operationId": "stock_update_api_v1_admin_stock_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 100,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StockUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/admin/ledger/daily": {
@@ -1116,7 +1171,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "pattern": "^(PURCHASE|SALE|BYPRODUCT|EXPENSE)$"
+                  "pattern": "^(PURCHASE|SALE|BYPRODUCT|EXPENSE|WASTAGE)$"
                 },
                 {
                   "type": "null"
@@ -2149,6 +2204,153 @@
         ]
       }
     },
+    "/api/v1/dev/verify-kyc": {
+      "post": {
+        "tags": [
+          "Development ONLY"
+        ],
+        "summary": "Mock Kyc",
+        "operationId": "mock_kyc_api_v1_dev_verify_kyc_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dev/wallet/deposit": {
+      "post": {
+        "tags": [
+          "Development ONLY"
+        ],
+        "summary": "Mock Deposit",
+        "operationId": "mock_deposit_api_v1_dev_wallet_deposit_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 100,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Deposit"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dev/withdrawals/{withdrawal_id}/resolve": {
+      "post": {
+        "tags": [
+          "Development ONLY"
+        ],
+        "summary": "Mock Resolve",
+        "operationId": "mock_resolve_api_v1_dev_withdrawals__withdrawal_id__resolve_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "withdrawal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Withdrawal Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 100,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveWithdrawal"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/businesses/{business_id}/summary": {
       "get": {
         "tags": [
@@ -2644,7 +2846,8 @@
               "PURCHASE",
               "SALE",
               "BYPRODUCT",
-              "EXPENSE"
+              "EXPENSE",
+              "WASTAGE"
             ],
             "title": "Kind"
           },
@@ -2676,11 +2879,28 @@
             ],
             "title": "Count"
           },
+          "wastage": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,3}0*$"
+              }
+            ],
+            "title": "Wastage",
+            "default": "0"
+          },
           "amount": {
             "type": "integer",
             "maximum": 1000000000000.0,
-            "exclusiveMinimum": 0.0,
-            "title": "Amount"
+            "minimum": 0.0,
+            "title": "Amount",
+            "description": "Integer paisa: Rs 100 = 10000",
+            "default": 0
           },
           "category": {
             "anyOf": [
@@ -2732,8 +2952,7 @@
         "required": [
           "business_id",
           "date",
-          "kind",
-          "amount"
+          "kind"
         ],
         "title": "DailyInput"
       },
@@ -2859,12 +3078,30 @@
             ],
             "title": "Count"
           },
+          "wastage": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,3}0*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wastage"
+          },
           "amount": {
             "anyOf": [
               {
                 "type": "integer",
                 "maximum": 1000000000000.0,
-                "exclusiveMinimum": 0.0
+                "minimum": 0.0,
+                "description": "Integer paisa: Rs 100 = 10000"
               },
               {
                 "type": "null"
@@ -2955,6 +3192,68 @@
           "password"
         ],
         "title": "Register"
+      },
+      "ResolveWithdrawal": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "PAID",
+              "FAILED"
+            ],
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "ResolveWithdrawal"
+      },
+      "StockUpdate": {
+        "properties": {
+          "business_id": {
+            "type": "string",
+            "title": "Business Id"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,3}0*$"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "count": {
+            "type": "integer",
+            "maximum": 100000000.0,
+            "minimum": 0.0,
+            "title": "Count",
+            "default": 0
+          },
+          "inventory_cost": {
+            "type": "integer",
+            "maximum": 1000000000000.0,
+            "minimum": 0.0,
+            "title": "Inventory Cost",
+            "description": "Integer paisa: Rs 100 = 10000"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "business_id",
+          "quantity",
+          "inventory_cost"
+        ],
+        "title": "StockUpdate"
       },
       "SupplierCreate": {
         "properties": {

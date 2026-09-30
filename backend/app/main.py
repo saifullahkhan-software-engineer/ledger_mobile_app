@@ -41,6 +41,7 @@ from .schemas import (
     Profile,
     Register,
     ResolveWithdrawal,
+    StockUpdate,
     SupplierCreate,
     UserOut,
     UserRoleUpdate,
@@ -76,6 +77,7 @@ from .services import (
     owned,
     settle,
     today,
+    update_stock,
     wallet,
 )
 
@@ -429,6 +431,14 @@ async def stock(business_id: str, db: DB, u=Depends(admin)):
     }
 
 
+@app.put("/api/v1/admin/stock", tags=["Operations"])
+async def stock_update(p: StockUpdate, db: DB, key: Key, u=Depends(admin)):
+    async def action():
+        return await update_stock(db, u, p)
+
+    return await once(db, u, f"stock:{p.business_id}", key, p.model_dump(), action)
+
+
 @app.post("/api/v1/admin/ledger/daily", tags=["Operations"])
 async def daily(p: DailyInput, db: DB, key: Key, u=Depends(admin)):
     async def action():
@@ -477,7 +487,7 @@ async def operation_feed(
     business_id: str,
     db: DB,
     u=Depends(admin),
-    kind: str | None = Query(None, pattern="^(PURCHASE|SALE|BYPRODUCT|EXPENSE)$"),
+    kind: str | None = Query(None, pattern="^(PURCHASE|SALE|BYPRODUCT|EXPENSE|WASTAGE)$"),
     start: date | None = None,
     end: date | None = None,
     offset: int = Query(0, ge=0),
@@ -1019,6 +1029,10 @@ async def business_summary(
         "day": data(day) if day else None,
         "purchased_quantity": sum(r.quantity for r in ops if r.kind == "PURCHASE"),
         "sold_quantity": sum(r.quantity for r in ops if r.kind == "SALE"),
+        "wasted_quantity": sum(
+            (r.wastage or 0) for r in ops if r.kind == "SALE"
+        )
+        + sum(r.quantity for r in ops if r.kind == "WASTAGE"),
         "purchased_count": sum(r.count or 0 for r in ops if r.kind == "PURCHASE"),
         "sold_count": sum(r.count or 0 for r in ops if r.kind == "SALE"),
         "byproduct_quantity": sum(r.quantity for r in ops if r.kind == "BYPRODUCT"),

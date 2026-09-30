@@ -12,20 +12,28 @@ from app.models import Business, User
 
 BACKEND = Path(__file__).resolve().parents[1]
 
-LEGACY_IMAGE_ASSETS_DDL = """
+def legacy_ddl(dialect: str) -> tuple[str, str]:
+    """Raw DDL for the retired tables, spelled per dialect.
+
+    CI runs this file against PostgreSQL 16, which has neither SQLite's
+    ``DATETIME`` nor its ``BLOB`` type, so the column types are chosen here
+    rather than hardcoded.
+    """
+    binary = "BYTEA" if dialect == "postgresql" else "BLOB"
+    stamp = "TIMESTAMP" if dialect == "postgresql" else "DATETIME"
+    image_assets = f"""
 CREATE TABLE image_assets (
     id VARCHAR(36) NOT NULL,
     content_type VARCHAR(100) NOT NULL,
     filename VARCHAR(255) NOT NULL,
     size BIGINT NOT NULL,
     sha256 VARCHAR(64) NOT NULL,
-    created_at DATETIME NOT NULL,
-    data BLOB NOT NULL,
+    created_at {stamp} NOT NULL,
+    data {binary} NOT NULL,
     PRIMARY KEY (id)
 )
 """
-
-LEGACY_APP_ICONS_DDL = """
+    app_icons = f"""
 CREATE TABLE app_icons (
     id VARCHAR(36) NOT NULL,
     key VARCHAR(50) NOT NULL,
@@ -33,11 +41,12 @@ CREATE TABLE app_icons (
     screen VARCHAR(50) NOT NULL,
     image_url VARCHAR(500) NOT NULL,
     fallback_icon VARCHAR(50),
-    updated_at DATETIME NOT NULL,
+    updated_at {stamp} NOT NULL,
     asset_id VARCHAR(36) REFERENCES image_assets(id),
     PRIMARY KEY (id)
 )
 """
+    return image_assets, app_icons
 
 
 def clear_legacy_icon_schema():
@@ -61,17 +70,44 @@ def add_legacy_icon_schema():
     """
     clear_legacy_icon_schema()
     with sync_engine.begin() as conn:
-        conn.execute(text(LEGACY_IMAGE_ASSETS_DDL))
-        conn.execute(text(LEGACY_APP_ICONS_DDL))
+        image_assets_ddl, app_icons_ddl = legacy_ddl(conn.dialect.name)
+        conn.execute(text(image_assets_ddl))
+        conn.execute(text(app_icons_ddl))
+        # Bound parameters, not inline literals: the PNG bytes and the
+        # timestamp have to travel in a form both dialects accept.
         conn.execute(
-            text("INSERT INTO image_assets VALUES "
-                 "('asset-1', 'image/png', 'icon.png', 8, '" + "0" * 64 + "', "
-                 "CURRENT_TIMESTAMP, X'89504E470D0A1A0A')")
+            text(
+                "INSERT INTO image_assets "
+                "(id, content_type, filename, size, sha256, created_at, data) "
+                "VALUES (:id, :ctype, :filename, :size, :sha256, "
+                "CURRENT_TIMESTAMP, :data)"
+            ),
+            {
+                "id": "asset-1",
+                "ctype": "image/png",
+                "filename": "icon.png",
+                "size": 8,
+                "sha256": "0" * 64,
+                "data": b"\x89PNG\r\n\x1a\n",
+            },
         )
         conn.execute(
-            text("INSERT INTO app_icons VALUES "
-                 "('icon-1', 'app_logo', 'Logo', 'dashboard', "
-                 "'/api/v1/images/asset-1', 'store', CURRENT_TIMESTAMP, 'asset-1')")
+            text(
+                "INSERT INTO app_icons "
+                "(id, key, label, screen, image_url, fallback_icon, "
+                "updated_at, asset_id) "
+                "VALUES (:id, :key, :label, :screen, :image_url, "
+                ":fallback_icon, CURRENT_TIMESTAMP, :asset_id)"
+            ),
+            {
+                "id": "icon-1",
+                "key": "app_logo",
+                "label": "Logo",
+                "screen": "dashboard",
+                "image_url": "/api/v1/images/asset-1",
+                "fallback_icon": "store",
+                "asset_id": "asset-1",
+            },
         )
         conn.execute(
             text("ALTER TABLE businesses ADD COLUMN icon_url VARCHAR(500)")

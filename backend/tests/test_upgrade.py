@@ -38,9 +38,6 @@ def simulate_legacy_schema(conn, table, keep_columns, drop_columns):
         legacy_without(conn, table, keep_columns)
 
 
-BUSINESS_COLUMNS = [
-    "id", "name", "type", "total_shares", "share_price", "stock", "stock_cost",
-]
 OPERATION_COLUMNS = [
     "id", "day_id", "kind", "quantity", "amount", "cost", "channel", "note",
     "supplier_id", "created_at",
@@ -57,30 +54,32 @@ def operation_columns():
 
 def test_upgrade_adds_missing_columns_and_preserves_data(client, admin_headers):
     with Session.begin() as db:
-        business = db.get(Business, "chicken")
-        business.stock_count = 7
+        db.get(Business, "chicken").stock_count = 7
 
+    # Only constraint-free columns are dropped: `businesses.stock_count` is
+    # referenced by that table's CHECK constraint, so PostgreSQL refuses to
+    # drop it without CASCADE. `operations.count`/`category` are portable.
     with sync_engine.begin() as conn:
-        simulate_legacy_schema(conn, "businesses", BUSINESS_COLUMNS, ["stock_count"])
         simulate_legacy_schema(conn, "operations", OPERATION_COLUMNS, ["count", "category"])
         conn.execute(text("DROP INDEX IF EXISTS ix_operations_day_id"))
 
-    assert "stock_count" not in business_columns()
     assert {"count", "category"} & operation_columns() == set()
 
     result = run_manage("upgrade-db")
     assert result.returncode == 0, result.stdout + result.stderr
 
-    assert "stock_count" in business_columns()
     assert {"count", "category"} <= operation_columns()
     assert "ix_operations_day_id" in {
         index["name"] for index in inspect(sync_engine).get_indexes("operations")
     }
+    # A column that was never missing is left alone.
+    assert "stock_count" in business_columns()
 
     # Accounts, businesses and their data survive the upgrade untouched.
     with Session() as db:
         assert db.get(User, "admin").phone == "+923001234567"
         assert db.get(Business, "chicken").name == "Chicken"
+        assert db.get(Business, "chicken").stock_count == 7
     assert (
         client.get("/api/v1/admin/businesses", headers=admin_headers).status_code == 200
     )

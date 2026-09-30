@@ -205,16 +205,14 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
         val op = od.operation
         readJob?.cancel(); ++generation
         val qty = op.quantity.toBigDecimalOrNull()
-        val price = if (qty != null && qty.signum() > 0) {
-            try { java.math.BigDecimal.valueOf(op.amount, 2).divide(qty, 2, java.math.RoundingMode.HALF_UP).toPlainString() } catch (_: ArithmeticException) { "" }
-        } else ""
+        val waste = op.wastage?.toBigDecimalOrNull()
         val values = mapOf(
             "kind" to op.kind,
             "date" to od.day.date,
             "lpg" to if (od.business.type == "LPG") "1" else "0",
             "quantity" to (qty?.stripTrailingZeros()?.toPlainString() ?: "0"),
             "count" to (op.count?.toString() ?: ""),
-            "price" to price,
+            "wastage" to (waste?.takeIf { it.signum() > 0 }?.stripTrailingZeros()?.toPlainString() ?: ""),
             "amount" to java.math.BigDecimal.valueOf(op.amount, 2).toPlainString(),
             "category" to (op.category ?: ""),
             "note" to op.note
@@ -366,9 +364,17 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
         if (state.value.saving) return
         readJob?.cancel(); ++generation
         val user = state.value.user
-        val values = mutableMapOf("date" to businessDate(), "channel" to "RETAIL", "deaths" to "0", "feed" to "0")
+        val on = if (state.value.page == Page.DAY) state.value.dayDate else businessDate()
+        val values = mutableMapOf("date" to on, "channel" to "RETAIL", "deaths" to "0", "feed" to "0")
         if (kind in listOf(FormKind.BATCH_CREATE, FormKind.BATCH_LOG, FormKind.HARVEST)) values["amount"] = "0"
         if (kind == FormKind.PROFILE) { values["name"] = user?.name.orEmpty(); values["language"] = user?.language ?: "en" }
+        if (kind == FormKind.EDIT_STOCK) {
+            val stock = state.value.stock
+            values["quantity"] = stock?.quantity ?: state.value.business?.stock ?: "0"
+            values["count"] = (stock?.count ?: state.value.business?.stock_count ?: 0).toString()
+            val cost = stock?.inventory_cost ?: state.value.business?.stock_cost ?: 0L
+            values["amount"] = java.math.BigDecimal.valueOf(cost, 2).toPlainString()
+        }
         updateState { it.copy(draft = Draft(kind, values), loading = false, error = null, recent = emptyList()) }
         val id = state.value.business?.id
         val filter = recentKind(kind)
@@ -388,7 +394,8 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
     /** Forms that show a "last 5" table, mapped to the feed's kind filter. */
     private fun recentKind(kind: FormKind): String? = when (kind) {
         FormKind.SALE -> "SALE"; FormKind.PURCHASE -> "PURCHASE"
-        FormKind.EXPENSE -> "EXPENSE"; FormKind.BYPRODUCT -> "BYPRODUCT"; else -> null
+        FormKind.EXPENSE -> "EXPENSE"; FormKind.BYPRODUCT -> "BYPRODUCT"
+        FormKind.WASTAGE -> "WASTAGE"; else -> null
     }
     fun field(name: String, value: String) {
         if (!state.value.saving) updateState { current ->
@@ -407,12 +414,16 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
     }
     fun submit() = write {
         val s = state.value; val draft = requireNotNull(s.draft)
-        val body = formBody(draft, s.business, s.batch)
+        val body = formBody(draft, s.business, s.batch, allowPastDate = s.user?.role == "SUPERADMIN")
         val user = requireNotNull(s.user)
         val batchId = s.batch?.id.orEmpty()
         var message = "Record saved successfully."
         when (draft.kind) {
-            FormKind.SALE, FormKind.PURCHASE, FormKind.EXPENSE, FormKind.BYPRODUCT -> repo.idempotent(user.id, "daily", body.toString()) { repo.api.daily(it, body) }
+            FormKind.SALE, FormKind.PURCHASE, FormKind.EXPENSE, FormKind.BYPRODUCT, FormKind.WASTAGE -> repo.idempotent(user.id, "daily", body.toString()) { repo.api.daily(it, body) }
+            FormKind.EDIT_STOCK -> {
+                repo.idempotent(user.id, "stock:${s.business?.id}", body.toString()) { repo.api.updateStock(it, body) }
+                message = "Stock updated."
+            }
             FormKind.EDIT_OPERATION -> {
                 val opId = requireNotNull(s.operationDetail).operation.id
                 val result = repo.idempotent(user.id, "op-edit:$opId", body.toString()) { repo.api.updateOperation(opId, it, body) }

@@ -324,6 +324,9 @@ import kotlinx.coroutines.launch
                 TextButton(onClick = { quickAddBusiness = null; vm.go(Page.BUSINESS, business); vm.openForm(FormKind.BYPRODUCT) }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.LocalOffer, null, tint = Chicken, modifier = Modifier.size(22.dp)); Spacer(Modifier.width(10.dp)); Text(tr("Other sale"))
                 }
+                TextButton(onClick = { quickAddBusiness = null; vm.go(Page.BUSINESS, business); vm.openForm(FormKind.WASTAGE) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.RemoveCircleOutline, null, tint = Color(0xFF8D6E63), modifier = Modifier.size(22.dp)); Spacer(Modifier.width(10.dp)); Text(tr("Wastage"))
+                }
             }
         }
     }, confirmButton = { TextButton(onClick = { quickAddBusiness = null }) { Text(tr("Cancel")) } }) }

@@ -127,28 +127,69 @@ def test_scheduled_sweep_matches_the_api_and_is_repeatable(
         assert db.scalar(select(func.count(Settlement.id))) == 1
 
 
-def test_new_records_still_must_use_todays_date(client, admin_headers):
-    # Updating a previous date is an owner correction; creating a new backdated
-    # record is not exposed to anyone.
+def test_managers_cannot_add_records_to_a_previous_date(client, admin_headers):
     assert (
         client.put(
             P + "/admin/businesses/chicken/managers/manager", headers=admin_headers
         ).status_code
         == 200
     )
-    for index, headers in enumerate((admin_headers, manager_headers(client))):
-        r = client.post(
-            P + "/admin/ledger/daily",
-            json={
-                "business_id": "chicken",
-                "date": str(today() - timedelta(days=1)),
-                "kind": "SALE",
-                "quantity": "1",
-                "amount": 100,
-            },
-            headers={**headers, "Idempotency-Key": f"backdated-entry-{index}"},
-        )
-        assert r.status_code == 422, r.text
+    r = client.post(
+        P + "/admin/ledger/daily",
+        json={
+            "business_id": "chicken",
+            "date": str(today() - timedelta(days=1)),
+            "kind": "EXPENSE",
+            "amount": 100,
+        },
+        headers={**manager_headers(client), "Idempotency-Key": "manager-backdated"},
+    )
+    assert r.status_code == 422, r.text
+
+
+def test_nobody_can_add_records_to_a_future_date(client, admin_headers):
+    r = client.post(
+        P + "/admin/ledger/daily",
+        json={
+            "business_id": "chicken",
+            "date": str(today() + timedelta(days=1)),
+            "kind": "EXPENSE",
+            "amount": 100,
+        },
+        headers={**admin_headers, "Idempotency-Key": "future-entry"},
+    )
+    assert r.status_code == 422, r.text
+
+
+def test_super_admin_can_add_a_record_to_a_previous_date(
+    client, admin_headers, investor_headers
+):
+    post(
+        client,
+        "/investor/transaction/buy",
+        investor_headers,
+        {"business_id": "chicken", "shares": 1},
+    )
+    past = str(today() - timedelta(days=1))
+    added = client.post(
+        P + "/admin/ledger/daily",
+        json={
+            "business_id": "chicken",
+            "date": past,
+            "kind": "EXPENSE",
+            "amount": 500,
+        },
+        headers={**admin_headers, "Idempotency-Key": "owner-backdated"},
+    )
+    assert added.status_code == 200, added.text
+    body = added.json()
+    assert body["day"]["date"] == past
+    assert body["day"]["status"] == "CLOSED"
+    assert body["day"]["expenses"] == 500
+    assert body["operation"]["kind"] == "EXPENSE"
+    # A gap date is settled the same way midnight would have.
+    assert body["day"]["settled_net_profit"] == -500
+    assert body["day"]["variance"] == 0
 
 
 def test_super_admin_corrects_a_settled_date_without_touching_the_payout(

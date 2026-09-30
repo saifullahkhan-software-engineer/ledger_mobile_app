@@ -30,19 +30,46 @@ class ValidationTest {
         assertThrows(IllegalArgumentException::class.java) { quantityInput("-1") }
     }
     @Test fun saleMatchesApiContractAndPreservesUnicode() {
-        val result = formBody(Draft(FormKind.SALE, mapOf("date" to date, "quantity" to "2.5", "price" to "600.10", "note" to "  احسن sale  ")), chicken, null, date)
+        val result = formBody(Draft(FormKind.SALE, mapOf("date" to date, "quantity" to "2.5", "amount" to "1500.25", "note" to "  احسن sale  ")), chicken, null, date)
         assertEquals(150025L, result["amount"].asLong)
         assertEquals("2.5", result["quantity"].asString)
         assertEquals("  احسن sale  ", result["note"].asString)
         assertEquals("SALE", result["kind"].asString)
     }
+    @Test fun saleAmountIsFixedNotWeightTimesRate() {
+        val result = formBody(Draft(FormKind.SALE, mapOf("date" to date, "quantity" to "2.5", "amount" to "800")), chicken, null, date)
+        assertEquals(80000L, result["amount"].asLong)
+        assertEquals("2.5", result["quantity"].asString)
+        assertFalse(result.has("price"))
+    }
+    @Test fun chickenSaleSendsWastage() {
+        val result = formBody(Draft(FormKind.SALE, mapOf("date" to date, "quantity" to "4", "amount" to "500", "wastage" to "0.5")), chicken, null, date)
+        assertEquals("0.5", result["wastage"].asString)
+        assertEquals(50000L, result["amount"].asLong)
+        val waste = formBody(Draft(FormKind.WASTAGE, mapOf("date" to date, "quantity" to "1.25", "note" to "")), chicken, null, date)
+        assertEquals("WASTAGE", waste["kind"].asString)
+        assertEquals(0L, waste["amount"].asLong)
+        assertEquals("1.25", waste["quantity"].asString)
+        assertThrows(IllegalArgumentException::class.java) { formBody(Draft(FormKind.WASTAGE, mapOf("date" to date, "quantity" to "1")), lpg, null, date) }
+    }
+    @Test fun stockEditSendsWeightCountAndPrice() {
+        val result = formBody(Draft(FormKind.EDIT_STOCK, mapOf("quantity" to "12.25", "count" to "9", "amount" to "1500.50")), chicken, null, date)
+        assertEquals("12.25", result["quantity"].asString)
+        assertEquals(9, result["count"].asInt)
+        assertEquals(150050L, result["inventory_cost"].asLong)
+        assertEquals("c", result["business_id"].asString)
+        assertThrows(IllegalArgumentException::class.java) { formBody(Draft(FormKind.EDIT_STOCK, mapOf("quantity" to "1", "amount" to "1")), broiler, null, date) }
+    }
     @Test fun lpgSaleRequiresChannel() {
-        val draft = Draft(FormKind.SALE, mapOf("date" to date, "quantity" to "2", "price" to "150"))
+        val draft = Draft(FormKind.SALE, mapOf("date" to date, "quantity" to "2", "amount" to "150"))
         assertThrows(IllegalArgumentException::class.java) { formBody(draft, lpg, null, date) }
         assertEquals("RETAIL", formBody(draft.copy(values = draft.values + ("channel" to "RETAIL")), lpg, null, date)["channel"].asString)
     }
     @Test fun rejectsBackdatedDailyEntry() {
         assertThrows(IllegalArgumentException::class.java) { formBody(Draft(FormKind.EXPENSE, mapOf("date" to "2026-01-01", "amount" to "1")), chicken, null, date) }
+        val past = formBody(Draft(FormKind.EXPENSE, mapOf("date" to "2026-01-01", "amount" to "1")), chicken, null, date, allowPastDate = true)
+        assertEquals("2026-01-01", past["date"].asString)
+        assertThrows(IllegalArgumentException::class.java) { formBody(Draft(FormKind.EXPENSE, mapOf("date" to "2026-01-03", "amount" to "1")), chicken, null, date, allowPastDate = true) }
     }
     @Test fun batchMortalityCannotExceedRemainingBirds() {
         val draft = Draft(FormKind.BATCH_LOG, mapOf("date" to date, "feed" to "1", "deaths" to "9", "amount" to "0"))

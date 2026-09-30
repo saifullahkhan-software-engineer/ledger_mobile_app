@@ -105,11 +105,11 @@ Extend the existing `business_summary` response instead of adding routes:
 
 ### 2.4 What each state does
 
-| State | Summary/transactions | Entry (add sale/purchase/expense) | Close day | Owner correction |
+| State | Summary/transactions | Entry (add sale/purchase/expense/wastage) | Close day | Owner correction |
 |---|---|---|---|---|
 | Today, OPEN | shown live | allowed | allowed (auto at midnight anyway) | allowed |
-| Past, CLOSED | shown incl. settled + variance | not allowed (existing rule) | n/a | allowed |
-| Past, no records | empty state | not allowed | n/a | n/a |
+| Past, CLOSED | shown incl. settled + variance | super admin only (adds a record; payout unchanged) | n/a | allowed |
+| Past, no records | empty state | super admin only (creates and settles the date) | n/a | n/a |
 | Future | empty state, labelled | not allowed | n/a | n/a |
 
 ## 3. Broiler (worth deciding separately)

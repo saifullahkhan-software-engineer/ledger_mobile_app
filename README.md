@@ -18,9 +18,9 @@ the single source of truth for every record, account and settlement.
 ## Roles
 
 - **SUPERADMIN** (owner) — full authority: manages users, assigns businesses, changes
-  roles, verifies KYC and is the only role that can correct a previous date's
+  roles, verifies KYC and is the only role that can add or correct a previous date's
   transactions.
-- **ADMIN** (manager) — runs only the businesses assigned to them; can add today's records and close the current date, but cannot correct an older one.
+- **ADMIN** (manager) — runs only the businesses assigned to them; can add today's records and close the current date, but cannot add or correct an older one.
 - **INVESTOR** — buys shares and receives payouts (no client app yet).
 
 Business dates (Asia/Karachi) close and settle **automatically when they end**
@@ -72,7 +72,7 @@ client's API contract against the live OpenAPI schema:
 
 ```bash
 cd backend
-python -m pytest -q     # 61 passed, 2 PostgreSQL-only skipped (SQLite; 63 passed on PostgreSQL)
+python -m pytest -q     # 58 passed, 2 PostgreSQL-only skipped (SQLite; 60 passed on PostgreSQL)
 ```
 
 ## Before real-money use

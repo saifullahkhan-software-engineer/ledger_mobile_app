@@ -9,7 +9,9 @@ An Admin-first implementation of the supplied screen reference, using Kotlin, Je
 - Backend address baked in at build time (`APP_SERVER_URL` environment variable or `appServerUrl` in `gradle.properties` → `BuildConfig.SERVER_URL`); the sign-in screen only asks for phone and password. Login for ADMIN/SUPERADMIN accounts.
 - Dashboard with real sales/profit totals and yesterday comparisons. No fabricated sample metrics.
 - Assigned-business drawer and red Chicken, green Broiler and blue LPG module cards.
-- Chicken/LPG purchase, sale, expense and "Other sale" (byproduct) forms; LPG retail/commercial channel selection.
+- Chicken/LPG purchase, sale, expense and "Other sale" (byproduct) forms; LPG retail/commercial channel selection. Sale and purchase amounts are a **fixed total**, not weight × a per-kg rate.
+- Chicken shop **wastage**: optional kg on a sale, plus a dedicated "Record wastage" action, so leftover cutting loss is taken out of stock and the day-end weight matches.
+- Stock screen shows remaining **kg**, **number of birds** (or cylinders) and **price**, and can be edited.
 - Supplier creation and purchase history; optional supplier on a purchase.
 - Stock and carrying cost; transaction history that lists **single transactions** (All / Sale / Purchase / Expense / Other sale chips plus Latest / Today / 7 days / This month ranges) with the day overview on a "Days" tab, and operation detail.
 - "Last 5 Sales", "Last 5 Purchases" and "Recent Expenses" tables under the matching entry forms, each with **View all** that opens the history filtered to that type.
@@ -18,7 +20,7 @@ An Admin-first implementation of the supplied screen reference, using Kotlin, Je
 - Broiler funding-stage batch creation, start confirmation, feed/mortality/expense logs, harvest confirmation and historical batch detail (including harvested batches).
 - Daily/last-seven-days/month-to-date reports, custom dates, per-business filtering and positive-profit chart. Losses remain included in the report table and totals.
 - Settlement history, profile name/language editing, password change and logout.
-- Owner-only corrections: the super admin can correct a transaction on an open date or on a previous, already settled date. The date summary is rebuilt, the payout already made is never changed, and the difference is shown on the date.
+- Owner-only corrections **and past-date entry**: the super admin can correct a transaction on an open date or on a previous, already settled date, and can add a new sale/purchase/expense/wastage to a previous date. The date summary is rebuilt, the payout already made is never changed, and the difference is shown on the date. Managers can only add records to today's open date.
 - Core navigation/form labels in English/Urdu, RTL layout, Unicode user input preserved. Supporting explanations, server errors and some confirmations remain English.
 - Loading, empty, validation, connection-error and expired-session states. User-triggered refresh and paginated history lists.
 - Keystore-encrypted session token. No stored passwords, network payload logs, hardcoded credentials or demo-data fallback.

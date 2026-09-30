@@ -1,30 +1,25 @@
-"""Explicit schema and image-data migration commands; never exposed over HTTP.
+"""Explicit schema migration commands; never exposed over HTTP.
 
 Commands
-- init-db:        create the current schema on an EMPTY database only.
-- upgrade-db:     repeatable additive schema upgrade for existing databases
-                  (creates image_assets/app_icons, adds missing icon columns).
-- migrate-images: repeatable data migration importing legacy /uploads/ files
-                  referenced by app_icons.image_url and businesses.icon_url
-                  into image_assets and pointing those rows at the new
-                  /api/v1/images/{id} serving URLs.
+- init-db:         create the current schema on an EMPTY database only.
+- upgrade-db:      repeatable additive schema upgrade for existing databases.
+- drop-icon-schema: one-time removal of the retired database-backed icon
+                   storage (app_icons, image_assets, businesses.icon_url and
+                   the asset foreign keys). Destructive; dry run by default.
 - seed:           create the owner account and sample businesses.
 - auto-close-days: close (and settle) every day whose business date has ended;
                   safe to run from cron every few minutes. The API also performs
                   this sweep itself before it reports or changes day status.
-- clear-data:     delete every record (ledger, days, batches, shares,
-                  settlements, withdrawals, investors) while KEEPING the
-                  SUPERADMIN/ADMIN accounts. Dry run unless --yes is passed.
+- clear-data:      delete every record (ledger, days, batches, shares,
+                   settlements, withdrawals, investors) while KEEPING the
+                   SUPERADMIN/ADMIN accounts. Dry run unless --yes is passed.
 """
 
 import argparse
 import asyncio
 import getpass
-import hashlib
-import json
 import os
 import sys
-from collections import defaultdict
 from contextlib import asynccontextmanager
 
 from sqlalchemy import inspect, select, text
@@ -32,25 +27,16 @@ from sqlalchemy import inspect, select, text
 from .db import (
     Base,
     AsyncSessionLocal,
-    Session,
     engine,
     sync_engine,
+    ICON_COLUMNS,
+    ICON_TABLES,
+    drop_icon_schema_on_connection,
     ensure_additive_columns,
     ensure_additive_columns_on_connection,
     write_session,
 )
-from .images import (
-    UPLOAD_DIR,
-    IMAGES_ROUTE,
-    asset_url,
-    clean_filename,
-    ensure_image_asset_schema_on_connection,
-    local_upload_relative_path,
-    match_asset_id,
-    validate_image,
-    MAX_IMAGE_BYTES,
-)
-from .models import AppIcon, Business, ImageAsset, User, WriteLock
+from .models import Business, User, WriteLock
 from .schemas import Register
 from .security import passwords
 
@@ -87,7 +73,7 @@ async def init():
 
 
 async def _apply_upgrade() -> None:
-    """Apply the additive image/icon schema upgrade to an initialized database."""
+    """Apply the additive schema upgrade to an initialized database."""
     async with engine.begin() as conn:
         initialized = await conn.run_sync(
             lambda connection: inspect(connection).has_table("businesses")
@@ -97,139 +83,107 @@ async def _apply_upgrade() -> None:
                 "Database is not initialized. Run python -m app.manage init-db first."
             )
         await conn.run_sync(ensure_additive_columns_on_connection)
-        await conn.run_sync(ensure_image_asset_schema_on_connection)
 
 
 async def upgrade():
     """Repeatable additive schema upgrade; no data is altered or deleted."""
     await _apply_upgrade()
     print(
-        "Upgraded legacy database schema for database-backed image storage "
-        "(image_assets table, icon asset references). Existing users, "
-        "businesses, financial history and icon settings are preserved. "
-        "Run 'python -m app.manage migrate-images' next to import any legacy "
-        "upload files into the database."
+        "Upgraded legacy database schema (missing columns and indexes added). "
+        "Existing users, businesses and financial history are preserved. "
+        "Databases created before the custom-icon feature was removed may "
+        "still hold the retired icon tables; run 'python -m app.manage "
+        "drop-icon-schema' to remove them."
     )
 
 
-def import_legacy_uploads(uploads_root: str | None = None) -> dict:
-    """Import legacy files referenced by icon rows into the image_assets table.
+async def drop_icon_schema(*, execute: bool = False) -> dict:
+    """Remove the retired database-backed icon schema. Dry run by default.
 
-    Repeatable: rows already pointing at /api/v1/images/{id} are skipped, and
-    content is deduplicated by SHA-256 so an interrupted run never creates
-    duplicate assets — each row update commits together with its asset insert,
-    so rerunning simply re-processes the not-yet-updated rows. Local upload
-    references (relative '/uploads/…' paths and absolute URLs pointing at this
-    server's /uploads/ directory) are read from disk WITHOUT any HTTP fetch;
-    other external URLs are preserved as legacy values, untouched.
+    Drops ``app_icons``, ``image_assets``, ``businesses.icon_url`` and the two
+    asset foreign keys. Uploaded icon images are permanently lost, which is the
+    point: the apps now resolve every icon from their bundled drawables.
     """
-    uploads_root = uploads_root or UPLOAD_DIR
-    root_real = os.path.realpath(uploads_root)
-    report: dict[str, list] = defaultdict(list)
+    if not _database_is_initialized():
+        raise RuntimeError(
+            "Database is not initialized. Run python -m app.manage init-db first."
+        )
+    report: dict = {"mode": "executed" if execute else "dry-run", "database": None}
 
-    with Session() as db:
-        targets = [
-            ("app_icon", row.id, row.image_url)
-            for row in db.execute(select(AppIcon)).scalars()
-            if row.image_url
-        ] + [
-            ("business", row.id, row.icon_url)
-            for row in db.execute(select(Business)).scalars()
-            if row.icon_url
+    def collect(conn):
+        inspector = inspect(conn)
+        found_columns = [
+            f"{table}.{column}"
+            for table, column in ICON_COLUMNS
+            if inspector.has_table(table)
+            and any(c["name"] == column for c in inspector.get_columns(table))
         ]
+        found_tables = [t for t in ICON_TABLES if inspector.has_table(t)]
+        if execute:
+            result = drop_icon_schema_on_connection(conn)
+        else:
+            result = {"dropped_tables": [], "dropped_columns": [], "skipped": []}
+        return found_columns, found_tables, result
 
-    for kind, row_id, url in targets:
-        # Commit each reference with its asset in one small transaction: a
-        # crash leaves either the old state (rerendered on rerun) or the new.
-        with Session.begin() as db:
-            relative = local_upload_relative_path(url)
-            if relative is None:
-                bucket = "already_migrated" if match_asset_id(url) else "external"
-                report[bucket].append({"kind": kind, "id": row_id, "url": url})
-                continue
-            if relative is False:
-                report["unsafe"].append({"kind": kind, "id": row_id, "url": url})
-                continue
-            full_path = os.path.realpath(os.path.join(root_real, relative))
-            if not full_path.startswith(root_real + os.sep):
-                report["unsafe"].append({"kind": kind, "id": row_id, "url": url})
-                continue
-            if not os.path.isfile(full_path):
-                # Missing files are reported; the existing reference is kept.
-                report["missing"].append(
-                    {"kind": kind, "id": row_id, "url": url, "file": relative}
-                )
-                continue
-            with open(full_path, "rb") as handle:
-                raw = handle.read(MAX_IMAGE_BYTES + 1)
-            try:
-                content_type = validate_image(raw)
-            except Exception as exc:  # malformed/oversized/unsupported legacy file
-                report["unsupported"].append(
-                    {
-                        "kind": kind,
-                        "id": row_id,
-                        "url": url,
-                        "file": relative,
-                        "reason": getattr(exc, "detail", str(exc)),
-                    }
-                )
-                continue
+    if execute:
+        async with engine.begin() as conn:
+            found_columns, found_tables, result = await conn.run_sync(collect)
+    else:
+        async with engine.connect() as conn:
+            found_columns, found_tables, result = await conn.run_sync(collect)
 
-            digest = hashlib.sha256(raw).hexdigest()
-            asset = db.execute(
-                select(ImageAsset).where(
-                    ImageAsset.sha256 == digest, ImageAsset.size == len(raw)
-                )
-            ).scalars().first()
-            if asset is None:
-                asset = ImageAsset(
-                    data=raw,
-                    content_type=content_type,
-                    filename=clean_filename(os.path.basename(full_path)),
-                    size=len(raw),
-                    sha256=digest,
-                )
-                db.add(asset)
-                db.flush()
-                outcome = "imported"
-            else:
-                outcome = "reused"
-            row = db.get(AppIcon, row_id) if kind == "app_icon" else db.get(Business, row_id)
-            if kind == "app_icon":
-                row.asset_id = asset.id
-                row.image_url = asset_url(asset.id)
-            else:
-                row.icon_asset_id = asset.id
-                row.icon_url = asset_url(asset.id)
-            report[outcome].append(
-                {
-                    "kind": kind,
-                    "id": row_id,
-                    "file": relative,
-                    "asset_id": asset.id,
-                    "image_url": row.image_url if kind == "app_icon" else row.icon_url,
-                }
-            )
+    report["database"] = engine.url.render_as_string(hide_password=True)
+    report["icon_columns"] = result["dropped_columns"] or found_columns
+    report["icon_tables"] = result["dropped_tables"] or found_tables
+    report["skipped"] = result["skipped"]
     return report
 
 
-async def migrate_images():
-    """Import legacy local upload files into image_assets; safe to rerun."""
-    await _apply_upgrade()
-    report = import_legacy_uploads()
-    print(json.dumps(report, indent=2))
-    imported = len(report["imported"]) + len(report["reused"])
-    skipped = sum(len(report[key]) for key in report) - imported
+def _print_drop_icon_schema(report: dict) -> None:
+    executed = report["mode"] == "executed"
+    verb = "Dropped" if executed else "Would drop"
+    print(f"drop-icon-schema — {'EXECUTED' if executed else 'DRY RUN (nothing was changed)'}")
+    print(f"Database: {report['database']}")
+    print()
+    if report["icon_columns"] or report["icon_tables"]:
+        for column in report["icon_columns"]:
+            print(f"  {verb} column  {column}")
+        for table in report["icon_tables"]:
+            print(f"  {verb} table   {table}")
+    else:
+        print("  Nothing to do — this database has no icon schema left.")
+    for skip in report["skipped"]:
+        print(f"  SKIPPED {skip['target']}: {skip['reason']}")
+    if not executed and (report["icon_columns"] or report["icon_tables"]):
+        print(
+            "\nDry run only. Re-run with --yes to drop these permanently "
+            "(add --force to skip the typed confirmation)."
+        )
+
+
+async def drop_icon_schema_command(args) -> None:
+    """Dry run first; drop only after --yes plus an explicit typed DROP."""
+    plan = await drop_icon_schema(execute=False)
+    _print_drop_icon_schema(plan)
+    if not plan["icon_columns"] and not plan["icon_tables"]:
+        return
+    if not args.yes:
+        return
+    if not args.force:
+        try:
+            answer = input("\nType DROP to permanently remove the icon schema: ")
+        except (EOFError, KeyboardInterrupt):
+            print("\nAborted; nothing was dropped.")
+            return
+        if answer.strip() != "DROP":
+            print("Aborted; nothing was dropped.")
+            return
+    report = await drop_icon_schema(execute=True)
+    print()
+    _print_drop_icon_schema(report)
     print(
-        f"Legacy image migration: {imported} references imported, "
-        f"{len(report['already_migrated'])} already migrated (skipped: {skipped} total), "
-        f"{len(report['external'])} external URLs left unchanged, "
-        f"{len(report['missing'])} missing files (references kept), "
-        f"{len(report['unsupported'])} unsupported files (references kept), "
-        f"{len(report['unsafe'])} unsafe paths skipped. Old files under "
-        f"uploads/ were NOT deleted; remove them manually after verifying "
-        f"icons render correctly."
+        f"\nDone. {len(report['icon_tables'])} table(s) and "
+        f"{len(report['icon_columns'])} column(s) removed."
     )
 
 
@@ -328,7 +282,7 @@ def _step(table, sql, count_sql, params=None, describe=""):
 
 
 def clear_data_steps(
-    *, keep_in, keep_params, delete_businesses, clear_images, force_relogin
+    *, keep_in, keep_params, delete_businesses, force_relogin
 ):
     """Build the ordered reset plan: one entry per DELETE/UPDATE to run."""
     steps = [
@@ -375,34 +329,6 @@ def clear_data_steps(
             describe="every account that is not SUPERADMIN/ADMIN",
         )
     )
-    if clear_images:
-        steps.append(
-            _step(
-                "app_icons",
-                "DELETE FROM app_icons",
-                "SELECT count(*) FROM app_icons",
-                describe="mobile screen icon slots",
-            )
-        )
-        steps.append(
-            _step(
-                "businesses",
-                "UPDATE businesses SET icon_asset_id = NULL, icon_url = NULL "
-                "WHERE icon_asset_id IS NOT NULL OR icon_url LIKE :prefix",
-                "SELECT count(*) FROM businesses WHERE icon_asset_id IS NOT NULL "
-                "OR icon_url LIKE :prefix",
-                {"prefix": IMAGES_ROUTE + "%"},
-                describe="business image references",
-            )
-        )
-        steps.append(
-            _step(
-                "image_assets",
-                "DELETE FROM image_assets",
-                "SELECT count(*) FROM image_assets",
-                describe="uploaded image bytes",
-            )
-        )
     if not delete_businesses:
         steps.append(
             _step(
@@ -500,7 +426,6 @@ async def clear_data(
     *,
     kept_roles=KEPT_ROLES_DEFAULT,
     delete_businesses: bool = False,
-    clear_images: bool = False,
     force_relogin: bool = False,
     execute: bool = False,
 ) -> dict:
@@ -530,7 +455,6 @@ async def clear_data(
         keep_in=keep_in,
         keep_params=keep_params,
         delete_businesses=delete_businesses,
-        clear_images=clear_images,
         force_relogin=force_relogin,
     )
 
@@ -588,7 +512,6 @@ async def clear_data(
         "rows": counts,
         "totals": totals,
         "businesses": "deleted" if delete_businesses else "kept (stock reset to 0)",
-        "icons": "deleted" if clear_images else "kept",
         "kept_tables": ["write_lock"],
     }
 
@@ -628,7 +551,6 @@ def _print_clear_data(report: dict) -> None:
         show("update", "Updating:" if executed else "Would also update:")
     print()
     print(f"Businesses: {report['businesses']}")
-    print(f"Screen icons and uploaded images: {report['icons']}")
     print("write_lock row kept (API serialization lock, not data)")
 
 
@@ -637,7 +559,6 @@ async def clear_data_command(args) -> None:
     options = dict(
         kept_roles=args.keep_roles,
         delete_businesses=args.delete_businesses,
-        clear_images=args.clear_images,
         force_relogin=args.force_relogin,
     )
     print(
@@ -678,7 +599,6 @@ if __name__ == "__main__":
     commands = {
         "init-db": init,
         "upgrade-db": upgrade,
-        "migrate-images": migrate_images,
         "seed": seed,
         "auto-close-days": auto_close_days,
     }
@@ -686,7 +606,6 @@ if __name__ == "__main__":
     help_text = {
         "init-db": "create the schema on an empty database",
         "upgrade-db": "repeatable additive schema upgrade (no data changes)",
-        "migrate-images": "import legacy uploads/ files into image_assets",
         "seed": "create the owner account and sample businesses",
         "auto-close-days": "close and settle every day whose business date ended",
     }
@@ -723,15 +642,28 @@ if __name__ == "__main__":
         "(default: keep them with stock reset to 0)",
     )
     clear.add_argument(
-        "--clear-images",
-        action="store_true",
-        help="also delete app_icons and image_assets; the app then falls back to "
-        "its bundled default icons (default: keep them)",
-    )
-    clear.add_argument(
         "--force-relogin",
         action="store_true",
         help="bump token_version on the kept accounts so signed-in devices must log in again",
+    )
+    drop = subparsers.add_parser(
+        "drop-icon-schema",
+        help="remove the retired database-backed icon tables and columns",
+        description=(
+            "Drop app_icons, image_assets, businesses.icon_url and the asset "
+            "foreign keys left behind by the removed custom-icon feature. "
+            "Prints a dry run unless --yes is passed."
+        ),
+    )
+    drop.add_argument(
+        "--yes",
+        action="store_true",
+        help="actually drop; without it the command only reports what it would drop",
+    )
+    drop.add_argument(
+        "--force",
+        action="store_true",
+        help="skip the typed DROP confirmation (with --yes, for scripts)",
     )
     args = parser.parse_args()
     if args.command != "init-db":
@@ -742,6 +674,12 @@ if __name__ == "__main__":
             asyncio.run(clear_data_command(args))
         except RuntimeError as exc:
             print(f"clear-data aborted: {exc}", file=sys.stderr)
+            raise SystemExit(1)
+    elif args.command == "drop-icon-schema":
+        try:
+            asyncio.run(drop_icon_schema_command(args))
+        except RuntimeError as exc:
+            print(f"drop-icon-schema aborted: {exc}", file=sys.stderr)
             raise SystemExit(1)
     else:
         asyncio.run(commands[args.command]())

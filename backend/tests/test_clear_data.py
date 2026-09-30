@@ -12,14 +12,12 @@ from app.db import Session, engine, sync_engine
 from app.manage import clear_data
 from app.services import today
 from app.models import (
-    AppIcon,
     Assignment,
     Batch,
     BatchLog,
     Business,
     Day,
     Idempotency,
-    ImageAsset,
     Journal,
     Operation,
     Ownership,
@@ -137,14 +135,6 @@ def add_records():
                 Assignment(user_id="manager", business_id="chicken"),
                 # Stale assignment for an account the reset deletes.
                 Assignment(user_id="investor-extra", business_id="lpg"),
-                ImageAsset(
-                    id="asset-1",
-                    data=b"\x89PNG\r\n\x1a\n",
-                    content_type="image/png",
-                    filename="icon.png",
-                    size=8,
-                    sha256="0" * 64,
-                ),
             ]
         )
         db.flush()
@@ -168,21 +158,12 @@ def add_records():
                 ),
                 Posting(id="pg-1", journal_id="jr-1", account="wallet:investor-extra", amount=80),
                 Posting(id="pg-2", journal_id="jr-1", account="profit:chicken", amount=-80),
-                AppIcon(
-                    key="app_logo",
-                    label="Logo",
-                    screen="dashboard",
-                    image_url="/api/v1/images/asset-1",
-                    asset_id="asset-1",
-                ),
             ]
         )
         business = db.get(Business, "chicken")
         business.stock = 12.5
         business.stock_cost = 4300
         business.stock_count = 7
-        business.icon_url = "/api/v1/images/asset-1"
-        business.icon_asset_id = "asset-1"
 
 
 def test_clear_data_dry_run_reports_without_deleting(client):
@@ -217,7 +198,7 @@ def test_clear_data_keeps_owner_managers_and_businesses(client, admin_headers):
     assert result.returncode == 0, result.stdout + result.stderr
     assert "EXECUTED" in result.stdout
     remaining = counts(*RECORD_TABLES, "users", "businesses", "admin_assignments",
-                       "app_icons", "image_assets", "write_lock")
+                       "write_lock")
     assert {table: remaining[table] for table in RECORD_TABLES} == {
         table: 0 for table in RECORD_TABLES
     }
@@ -225,12 +206,10 @@ def test_clear_data_keeps_owner_managers_and_businesses(client, admin_headers):
     assert users_by_role() == {"SUPERADMIN": 1, "ADMIN": 1}
     assert remaining["businesses"] == 3
     assert remaining["admin_assignments"] == 1  # the deleted investor's row is gone
-    assert remaining["app_icons"] == 1 and remaining["image_assets"] == 1
     assert remaining["write_lock"] == 1
     with Session() as db:
         chicken = db.get(Business, "chicken")
         assert (chicken.stock, chicken.stock_cost, chicken.stock_count) == (0, 0, 0)
-        assert chicken.icon_asset_id == "asset-1"  # icons kept by default
 
     # The kept accounts still sign in and can record a fresh transaction.
     login = client.post(
@@ -259,20 +238,17 @@ def test_clear_data_keeps_owner_managers_and_businesses(client, admin_headers):
         assert db.scalar(select(func.count(Operation.id))) == 1
 
 
-def test_clear_data_deletes_businesses_and_images_when_asked(client):
+def test_clear_data_deletes_businesses_when_asked(client):
     add_records()
 
-    result = run_clear("--yes", "--force", "--delete-businesses", "--clear-images")
+    result = run_clear("--yes", "--force", "--delete-businesses")
 
     assert result.returncode == 0, result.stdout + result.stderr
     remaining = counts(
-        *RECORD_TABLES, "users", "businesses", "admin_assignments",
-        "app_icons", "image_assets", "write_lock",
+        *RECORD_TABLES, "users", "businesses", "admin_assignments", "write_lock",
     )
     assert remaining["businesses"] == 0
     assert remaining["admin_assignments"] == 0
-    assert remaining["app_icons"] == 0
-    assert remaining["image_assets"] == 0
     assert remaining["users"] == 2
     assert remaining["write_lock"] == 1
 

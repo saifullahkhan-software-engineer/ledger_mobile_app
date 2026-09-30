@@ -6,13 +6,13 @@ FastAPI backend for the Admin/Investor PRD. **The Kotlin Admin client lives in [
 
 Implemented: password authentication, roles and assigned-business authorization, chicken/LPG inventory and operational records, suppliers and purchase history, daily closure, broiler funding/start/log/harvest lifecycle, share purchases, append-only financial history, atomic distributions, wallet reservations/refunds, marketplace, portfolio, reports, profile/language, OpenAPI, Postman, Docker and backend CI.
 
-Daily operations record money as the **total price** (weight × per-unit price); profit, revenue and settlements are always computed from those totals, never from weight or bird count. Chicken purchases/sales additionally carry an optional bird **count** that moves `businesses.stock_count` alongside weight-based stock, and expenses carry an optional **category** (e.g. Worker Salary, Electricity). `GET /api/v1/admin/operations/{id}` returns one transaction's full details (operation + day + business); `PATCH /api/v1/admin/operations/{id}` corrects a single transaction **only for the SUPERADMIN**, on today's open day and on previous dates that have already closed and settled. A correction reverses and re-applies the stock/day effects, posts a balancing journal adjustment for any cash difference and rebuilds that date's summary; a settlement that already paid out is never rewritten (see rule 3 below). Existing databases gain `operations.count`, `operations.category` and `businesses.stock_count` automatically: the API self-heals missing columns on the first request (same pattern as the legacy icon column), so a redeploy onto an old database needs no manual step; `python -m app.manage upgrade-db` remains available as the explicit operator command and is a no-op once healed.
+Daily operations record money as the **total price** (weight × per-unit price); profit, revenue and settlements are always computed from those totals, never from weight or bird count. Chicken purchases/sales additionally carry an optional bird **count** that moves `businesses.stock_count` alongside weight-based stock, and expenses carry an optional **category** (e.g. Worker Salary, Electricity). `GET /api/v1/admin/operations/{id}` returns one transaction's full details (operation + day + business); `PATCH /api/v1/admin/operations/{id}` corrects a single transaction **only for the SUPERADMIN**, on today's open day and on previous dates that have already closed and settled. A correction reverses and re-applies the stock/day effects, posts a balancing journal adjustment for any cash difference and rebuilds that date's summary; a settlement that already paid out is never rewritten (see rule 3 below). Existing databases gain `operations.count`, `operations.category` and `businesses.stock_count` automatically: the API self-heals missing columns on the first request, so a redeploy onto an old database needs no manual step; `python -m app.manage upgrade-db` remains available as the explicit operator command and is a no-op once healed.
 
 **This is a runnable backend MVP, not a launch-ready financial service.** Real OTP, identity verification, Raast/NayaPay/UBL transfers and callbacks are not implemented. The development-only KYC/deposit/withdrawal simulation is deliberately labelled and disabled outside development. Password login uses a phone number as the username; it does **not** verify ownership of that phone. Do not use this build to accept real investor money.
 
 ### Verification performed in the development sandbox
 
-- SQLite API/service integration tests, including Admin client contract coverage, the transaction feed (kind/date filters, ordering, pagination, access), day-summary navigation (past/today/future, gaps, bounds, no rows created for future dates), midnight auto-close/settlement, owner corrections of settled dates and the database-image flows (upload, exact-byte serving, MIME validation, malformed/oversized rejection, authorization, assignment/replacement/reset, shared-asset safety, list endpoints never loading image bytes, `migrate-images` legacy import/rerun/interruption paths, the `upgrade-db`/`migrate-images` CLI on old schemas and the `clear-data` reset (dry run, confirmation, what is kept/deleted, business and icon options, refusal when no account would be kept, and a working API afterwards): **61 passed, 2 skipped** on SQLite, **63 passed** on PostgreSQL 16.
+- SQLite API/service integration tests, including Admin client contract coverage, the transaction feed (kind/date filters, ordering, pagination, access), day-summary navigation (past/today/future, gaps, bounds, no rows created for future dates), midnight auto-close/settlement, owner corrections of settled dates, the `upgrade-db`/`drop-icon-schema` CLI on old schemas and the `clear-data` reset (dry run, confirmation, what is kept/deleted, business options, refusal when no account would be kept, and a working API afterwards): **48 passed, 2 skipped** on SQLite. The PostgreSQL 16 run happens in CI and has not been observed here.
 - Ordered Postman collection executed with Newman: **28 requests, 32 assertions passed**.
 - Tests include concurrent share purchases, concurrent withdrawals, concurrent duplicate settlements, rounding, duplicate-key conflicts, rollback, authorization, password revocation, stock valuation, and batch profit/loss.
 - The two skipped tests need PostgreSQL append-only triggers: that history cannot be deleted directly, and that `clear-data` leaves those triggers enabled (`pg_trigger.tgenabled = 'O'`) after using them. **PostgreSQL 16.2 was verified** by running the whole suite against a real server started from a self-contained PostgreSQL binary in the sandbox: **63 passed, 0 skipped**. Docker itself is still not installed there and system package installation is unavailable, so the Compose stack (`docker compose up`) was not exercised; CI runs the same suite against the `postgres:16` service and is green.
@@ -112,112 +112,45 @@ python -m app.manage auto-close-days
 
 Run commands from `backend/`, not the repository root. The API does not auto-create tables on startup. `init-db` is for the initial schema; it **does not migrate existing tables** after future schema changes.
 
-### Upgrading an existing database (screen icons + database image storage)
+### Removing the retired icon schema (`drop-icon-schema`)
 
-Icon and business images are now stored as **binary data in the
-`image_assets` table** instead of files under `backend/uploads/`. Two
-explicit, repeatable operator commands perform the upgrade; `create_all` /
-`init-db` never alter existing tables, and restarting Uvicorn alone does not
-update the schema.
+The custom screen-icon feature has been removed: the Admin app draws every
+icon and logo from artwork bundled in the APK, and the API exposes no image
+endpoints. Databases created before that removal may still hold the retired
+tables and columns:
 
-If `/api/v1/admin/icons` or saving an icon returns **500** with
-`relation "app_icons" does not exist`, `no such column: app_icons.asset_id`
-or similar, the database predates this release.
+| Retired object | What it held |
+|---|---|
+| `app_icons` | one row per configurable screen-icon slot |
+| `image_assets` | the uploaded image bytes (`BYTEA`) |
+| `businesses.icon_url`, `businesses.icon_asset_id` | the per-business custom image |
+| `app_icons.asset_id` | foreign key to `image_assets` |
 
-**1. Back up the database, stop the API (Ctrl+C), and apply the schema
-upgrade.** With your virtual environment activated, run these commands
-**from `backend/`** in Windows PowerShell (the same commands work in
-macOS/Linux shells):
-
-```powershell
-cd backend
-.\.venv\Scripts\Activate.ps1   # skip if already active
-python -m app.manage upgrade-db
-```
-
-`upgrade-db` creates `image_assets` and `app_icons` if absent and adds
-`businesses.icon_url`, `businesses.icon_asset_id` and `app_icons.asset_id`
-if absent. **No data is altered or deleted**, and it is safe to rerun:
-existing accounts, businesses, financial history and icon settings are
-preserved. It uses the same `DATABASE_URL` / `backend/.env` as the API — an
-exported `DATABASE_URL` (PowerShell: `$env:DATABASE_URL="…"`) overrides
-`.env`, so ensure it points at the affected database. Run one upgrade
-process at a time, with database schema-owner permissions. This is a
-targeted additive upgrade, not a general migration framework. For an empty
-database, use `python -m app.manage init-db` instead.
-
-**2. Import the legacy upload files into the database:**
-
-```powershell
-python -m app.manage migrate-images
-```
-
-This data migration reads local files referenced by `app_icons.image_url`
-and `businesses.icon_url` and stores their bytes in `image_assets`:
-
-- Relative `/uploads/…` paths and legacy absolute URLs whose **path** starts
-  with `/uploads/` (e.g. `http://192.168.1.20:8000/uploads/icons/x.png` or
-  `http://localhost:8000/uploads/…` left over from a LAN setup) are read
-  from the local uploads directory. **No HTTP request is ever made** —
-  absolute upload URLs are treated purely as local file references.
-- Other external URLs (`https://cdn.example.com/…`) are **preserved
-  unchanged** as legacy values. Copying third-party images into the database
-  is an explicit policy decision that this migration does not make for you.
-- Traversal attempts (`/uploads/../…`, back-slashes, paths escaping the
-  uploads root) are rejected and reported as `unsafe`, never followed.
-- Missing files, oversized files and files that fail content validation
-  (including legacy SVGs, which are no longer accepted) are reported under
-  `missing`/`unsupported` and their **existing references are kept**, so
-  nothing silently breaks.
-- Successfully imported rows get their `image_url`/`icon_url` rewritten to
-  the new serving URL (`/api/v1/images/{id}`) and their asset foreign key
-  set. Identical file contents produce **one shared asset** (SHA-256
-  dedupe), so two icons using the same file keep sharing one copy.
-
-The command prints a JSON report (`imported`, `reused`, `already_migrated`,
-`external`, `missing`, `unsupported`, `unsafe`) plus a summary line; treat
-any `missing`/`unsupported`/`unsafe` entries as action items.
-
-**Interruption and reruns:** each reference is imported in its own small
-transaction, so a interrupted run (Ctrl+C, crash, network loss to the
-database) leaves completed references migrated and the rest untouched — the
-old files are still in place, so nothing is lost. Just rerun the command:
-already-migrated rows are skipped (their URLs no longer point at
-`/uploads/`), and byte-identical content is matched by SHA-256 and reused,
-so **rerunning never creates duplicate assets**.
-
-**3. Start the API again:**
-
-```powershell
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-For Docker Compose, use:
+`init-db` and `upgrade-db` never recreate them — they are gone from the ORM
+metadata — so an existing database keeps them until you remove them:
 
 ```bash
-docker compose stop api
-docker compose build api
-docker compose run --rm api python -m app.manage upgrade-db
-docker compose run --rm api python -m app.manage migrate-images
-docker compose up -d api
+python -m app.manage drop-icon-schema          # dry run: lists what would go
+python -m app.manage drop-icon-schema --yes    # asks you to type DROP, then drops
 ```
 
-The migration **never deletes the old files**. Once you have verified that
-every screen icon/brand logo/business icon renders correctly (check the
-Screen icons page in the admin app and `GET /api/v1/mobile/icons`), the
-leftover files under `backend/uploads/` are safe to remove manually; the
-`/uploads` static mount can stay as long as any preserved external refs or
-unmigrated files need it.
+Add `--force` alongside `--yes` to skip the typed confirmation in scripts. The
+command is repeatable: a second run reports "Nothing to do". It drops the
+columns before the tables so the foreign keys disappear with them, and on an
+SQLite build too old for `ALTER TABLE DROP COLUMN` it reports those columns as
+`SKIPPED` rather than failing. With Docker Compose:
+`docker compose run --rm api python -m app.manage drop-icon-schema --yes`.
 
-**Backups:** because image bytes now live in the database, your normal
-PostgreSQL backup (`pg_dump` / volume snapshots) automatically includes all
-previously migrated and newly uploaded icons — always take a database backup
-**before** deleting old files from `backend/uploads/`, and size future
-backups for the additional image data (≤ 2 MB per upload).
+**This is destructive.** Uploaded icon images are permanently lost, which is
+the point — nothing reads them any more. Accounts, businesses and financial
+history are untouched. Take a normal database backup first if you might want
+the old artwork back.
 
-`Enable-AppBackgroundTaskDiagnosticLog` is unrelated to FastAPI/PostgreSQL
-and is not required to run this app. Its registry-access error does not
-cause any of the errors above; you can omit that command.
+`upgrade-db` remains the repeatable additive upgrade for the columns the
+current schema does need (`operations.count`, `operations.category`,
+`businesses.stock_count` and the `operations.day_id` index). It alters no data
+and is a no-op once a database is current.
+
 
 ### Clearing all data (keep the owner and the managers)
 
@@ -240,7 +173,6 @@ With Docker Compose: `docker compose run --rm api python -m app.manage clear-dat
 | `operations`, `daily_ledgers`, `suppliers`, `batches`, `batch_logs`, `share_ledger`, `journal`, `postings`, `settlements`, `withdrawals`, `idempotency` | `write_lock` (the API's serialization row, not data) |
 | every `users` row that is not SUPERADMIN/ADMIN (investors), and the `admin_assignments` rows of those accounts | SUPERADMIN and ADMIN accounts and their business assignments |
 | — | `businesses`, with `stock`, `stock_cost` and `stock_count` reset to 0 |
-| — | `app_icons` and `image_assets` (screen icons and uploaded images) |
 
 Flags:
 
@@ -250,7 +182,6 @@ Flags:
 | `--force` | skip the typed `DELETE` confirmation (with `--yes`, for scripts) |
 | `--keep-roles SUPERADMIN,ADMIN` | which roles survive (default shown) |
 | `--delete-businesses` | also delete the businesses and every manager assignment |
-| `--clear-images` | also delete `app_icons`/`image_assets`; the app then falls back to its bundled default icons |
 | `--force-relogin` | bump `token_version` on the kept accounts so signed-in devices must log in again |
 
 Notes:
@@ -267,11 +198,8 @@ Notes:
   enforcement stays on the whole time. Run as the role that owns the tables
   (the user in `DATABASE_URL`) — if the guard cannot be lifted the command
   aborts and deletes nothing.
-- Icons and images are **kept by default** because the Admin app still reads
-  them from the database (`GET /api/v1/admin/icons`, `/api/v1/images/{id}`)
-  and only falls back to its bundled artwork when the database holds none.
-  Pass `--clear-images` for a full visual reset as well.
-- Files left under `backend/uploads/` are not touched by this command.
+- Retired icon tables (`app_icons`, `image_assets`) are **not** touched by
+  this command — see `drop-icon-schema` above.
 
 ## 3. Test using Swagger (no coding needed)
 
@@ -414,40 +342,6 @@ All paths in the table except `/health` are prefixed with `/api/v1`. Text is Uni
 13. **Funding limitation:** Business counterpart accounts can be negative when the operator supplies off-platform capital. There is no bank-liquidity reconciliation or solvency check. A posted dividend is an internal entitlement, not proof that external cash is available to withdraw.
 14. **Valuation:** Portfolio shows acquisition cost and realized profit/loss, not a live market valuation. ROI history is actual recorded P&L divided by offering capital, not a forecast or guaranteed yield. Open daily reports are provisional; broiler revenue/profit is recognized only when harvested, not smoothed into daily sales.
 
-### Icon and brand-image storage (database-backed)
-
-Uploaded screen icons, the brand/header logo and business icons are stored as
-**binary image bytes in the `image_assets` table** (PostgreSQL `BYTEA`;
-SQLAlchemy `LargeBinary`, which maps to a BLOB under SQLite for tests), never
-as base64 text and never as new files in `backend/uploads/`.
-
-- **Uploads** (`POST /api/v1/admin/icons/upload` multipart,
-  `POST /api/v1/admin/icons/upload-base64`) are SUPERADMIN-only. Both decode
-  at most 2 MB of image data with bounded reads (the base64 payload itself is
-  size-capped before decoding); the actual bytes are then decoded with Pillow
-  and only PNG, JPEG, WebP and ICO pass. Filename extensions and client MIME
-  types are ignored; SVG and other malformed/scriptable content is rejected.
-- **Serving:** `GET /api/v1/images/{id}` is public (like the legacy
-  `/uploads` files it replaces, so unauthenticated mobile clients can load
-  icons) and returns the exact stored bytes with the validated
-  `Content-Type`, correct `Content-Length`, `Cache-Control: public,
-  max-age=31536000, immutable`, `X-Content-Type-Options: nosniff` and a
-  content-hash `ETag` (304 revalidation supported). Unknown IDs return 404.
-- **Immutable assets:** replacements are new uploads with new IDs and URLs,
-  so aggressively cached images never serve stale content. An asset is only
-  deleted when no `app_icons.asset_id` or `businesses.icon_asset_id`
-  references it anymore (shared assets are safe); uploads that were never
-  assigned are retained until an explicit cleanup policy removes them.
-- **Compatibility:** rows keep their `image_url`/`icon_url` value — it simply
-  points at `/api/v1/images/{id}` for database-stored images. Plain URLs
-  (legacy `/uploads/…` files, approved external HTTPS links) still work as
-  before with a null asset reference. Lists (`/api/v1/admin/icons`,
-  `/api/v1/mobile/icons`, business lists) carry URLs only, never image
-  bytes; the binary column is deferred and never joined, so ordinary icon
-  and business queries do not read image data.
-- **Size budget:** each image is capped at 2 MB decoded bytes and
-  25 megapixels, bounding both storage and decoding cost.
-
 ## 8. Data model and code organization
 
 ```text
@@ -480,7 +374,6 @@ backend/
 | `settlements` | Unique source, exact ownership snapshot, principal, profit, payouts, retained amount |
 | `withdrawals` | Reserved withdrawal amount and pending/paid/failed lifecycle |
 | `idempotency` | User/operation/key scope, request hash and committed response |
-| `image_assets` | Uploaded icon/logo image bytes (deferred BLOB), validated MIME, original filename, size, SHA-256 and creation time; referenced by `app_icons.asset_id` and `businesses.icon_asset_id` |
 | `write_lock` | Cross-worker transaction serialization |
 
 UUIDs identify entities; monetary columns are BIGINT, quantity columns NUMERIC. Foreign keys enforce relationships. Unique constraints prevent duplicate business dates, batch dates, settlement sources and journal references. PostgreSQL triggers reject UPDATE/DELETE on financial history tables. Administrative DDL/table-owner permissions can bypass protections: provision a restricted runtime database role before production. Service code enforces balanced journal creation; direct database writes are unsupported.
@@ -502,7 +395,7 @@ UUIDs identify entities; monetary columns are BIGINT, quantity columns NUMERIC. 
 - Physical Android phone → your computer's LAN IP, e.g. `http://192.168.1.20:8000`, on the same Wi-Fi. Permit port 8000 in your firewall. Android development builds may need a debug-only cleartext-network policy; use HTTPS in production.
 - Hosted clients/previews → the API's public HTTPS host. Never use `localhost` from a remote browser to reach this server. Native clients do not need CORS. No wildcard CORS policy is configured; a future web UI should use an allowlisted origin or a same-origin reverse proxy.
 - `JWT_SECRET` error: create `.env` in `backend/`, set a random 32+ character secret, and run from that directory.
-- Missing `app_icons`/`image_assets` tables or `asset_id` columns on an existing database: stop the API and run `python -m app.manage upgrade-db` (then `migrate-images` if legacy uploads exist), as described above.
+- Missing `operations.count` / `operations.category` / `businesses.stock_count` on an existing database: the API adds them on the first request; `python -m app.manage upgrade-db` does the same explicitly.
 - Uninitialized database / missing `write_lock`: run `python -m app.manage init-db` (or its Docker equivalent).
 - `401`: log in again; tokens expire after one hour. Password change/logout revokes all previously issued tokens for that account.
 - `403`: check role, business assignment or KYC. Investors cannot use admin endpoints.

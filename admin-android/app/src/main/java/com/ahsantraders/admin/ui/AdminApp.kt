@@ -181,12 +181,6 @@ import kotlinx.coroutines.launch
                                 icon = { Icon(Icons.Default.People, null) },
                                 onClick = { scope.launch { drawer.close() }; vm.openUsers() }
                             )
-                            NavigationDrawerItem(
-                                label = { Text(tr("Screen icons")) },
-                                selected = s.page == Page.ICONS,
-                                icon = { Icon(Icons.Default.Image, null) },
-                                onClick = { scope.launch { drawer.close() }; vm.openIcons() }
-                            )
                             HorizontalDivider(Modifier.padding(vertical = 12.dp))
                         }
                         NavigationDrawerItem(
@@ -270,7 +264,6 @@ import kotlinx.coroutines.launch
                                     Page.USERS -> UsersScreen(s, vm)
                                     Page.USER -> UserDetailScreen(s, vm)
                                     Page.ADD_USER -> AddUserScreen(s, vm)
-                                    Page.ICONS -> IconsScreen(s, vm)
                                     else -> SecondaryScreen(s, vm) { closeDay = it }
                                 }
                                 Spacer(Modifier.height(8.dp))
@@ -345,7 +338,7 @@ fun pageTitle(page: Page): String = when (page) {
     Page.OPERATION -> "Transaction details"
     Page.STOCK -> "Stock"; Page.SUPPLIERS -> "Suppliers"; Page.BILLS -> "Supplier bills"; Page.EXPENSES -> "Expenses"
     Page.REPORTS -> "Reports"; Page.SETTINGS -> "Settings"; Page.BATCHES -> "Batches"; Page.BATCH -> "Batch history"; Page.SETTLEMENTS -> "Settlement history"
-    Page.USERS -> "Users & access"; Page.USER -> "User details"; Page.ADD_USER -> "Add user"; Page.ICONS -> "Screen icons"
+    Page.USERS -> "Users & access"; Page.USER -> "User details"; Page.ADD_USER -> "Add user"
 }
 
 @Composable fun LoginScreen(s: AdminState, vm: AdminViewModel, onLoginSuccess: (() -> Unit)? = null) {

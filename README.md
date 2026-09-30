@@ -18,8 +18,8 @@ the single source of truth for every record, account and settlement.
 ## Roles
 
 - **SUPERADMIN** (owner) — full authority: manages users, assigns businesses, changes
-  roles, verifies KYC, configures the mobile screen icons and is the only role that can
-  correct a previous date's transactions.
+  roles, verifies KYC and is the only role that can correct a previous date's
+  transactions.
 - **ADMIN** (manager) — runs only the businesses assigned to them; can add today's records and close the current date, but cannot correct an older one.
 - **INVESTOR** — buys shares and receives payouts (no client app yet).
 
@@ -46,14 +46,16 @@ owner-only screens for non-owner accounts.
    uvicorn app.main:app --host 0.0.0.0 --port 8000
    ```
 
-   Screen/brand/business icon images are stored as bytes in PostgreSQL
-   (`image_assets` table) and served from `/api/v1/images/{id}`. Existing
-   installations migrate with two explicit, repeatable commands:
+   Existing installations pick up new columns and indexes with one explicit,
+   repeatable command:
 
    ```bash
    python -m app.manage upgrade-db       # additive schema upgrade (no data changes)
-   python -m app.manage migrate-images   # import legacy uploads/ files into the DB
    ```
+
+   Databases created before the custom-icon feature was removed still carry the
+   retired `app_icons` / `image_assets` tables; `python -m app.manage
+   drop-icon-schema` reports what it would drop and removes it with `--yes`.
 
    To wipe every record but keep the owner and manager accounts,
    `python -m app.manage clear-data` prints a dry run first; `--yes` deletes.
@@ -61,8 +63,7 @@ owner-only screens for non-owner accounts.
 
 2. **Admin app** — open [`admin-android/`](admin-android/README.md) in Android Studio
    and run it. Sign in with the owner credentials from `seed`. Use the owner-only
-   **Users** and **Screen icons** entries in the drawer to create managers and
-   investors and customize the mobile screen images.
+   **Users** entry in the drawer to create managers and investors.
 
 ## Testing
 

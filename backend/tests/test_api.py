@@ -1,8 +1,7 @@
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from sqlalchemy import inspect, select, func, text
+from sqlalchemy import select, func, text
 import pytest
-from app.db import Session, engine, sync_engine, ensure_business_icon_column
+from app.db import Session, engine, sync_engine
 from app.models import Posting, Ownership, Settlement
 from app.services import today
 
@@ -32,14 +31,6 @@ def daily(
         },
         key,
     )
-
-
-def test_legacy_business_schema_adds_missing_icon_column(client):
-    with sync_engine.begin() as conn:
-        conn.execute(text("ALTER TABLE businesses DROP COLUMN icon_url"))
-    asyncio.run(ensure_business_icon_column())
-    asyncio.run(ensure_business_icon_column())
-    assert "icon_url" in {col["name"] for col in inspect(sync_engine).get_columns("businesses")}
 
 
 def test_daily_settlement_and_idempotency(client, admin_headers, investor_headers):
@@ -566,7 +557,7 @@ def test_android_api_paths_match_backend_contract():
             assert '@Header("Idempotency-Key")' in signature, path
 
 
-def test_superadmin_users_and_mobile_icons(client, admin_headers, investor_headers):
+def test_superadmin_users(client, admin_headers, investor_headers):
     # 1. Super admin can see all users
     r = client.get("/api/v1/admin/users", headers=admin_headers)
     assert r.status_code == 200, r.text
@@ -592,59 +583,3 @@ def test_superadmin_users_and_mobile_icons(client, admin_headers, investor_heade
     # Normal investor/admin cannot access superadmin users endpoint
     r_forbidden = client.get("/api/v1/admin/users", headers=investor_headers)
     assert r_forbidden.status_code == 403
-
-    # 2. Superadmin adds / configures image for mobile screen icon
-    # Base64 icon upload
-    sample_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
-    r_upload = client.post(
-        "/api/v1/admin/icons/upload-base64",
-        headers=admin_headers,
-        json={"filename": "chicken_icon.png", "data": sample_base64},
-    )
-    assert r_upload.status_code == 200, r_upload.text
-    uploaded_url = r_upload.json()["image_url"]
-    assert uploaded_url.startswith("/api/v1/images/")
-    fetched = client.get(uploaded_url)
-    assert fetched.status_code == 200 and fetched.headers["content-type"] == "image/png"
-
-    # Superadmin sets mobile screen icon
-    r_icon = client.put(
-        "/api/v1/admin/icons/business_chicken",
-        headers=admin_headers,
-        json={
-            "label": "Chicken Shop Mobile Icon",
-            "screen": "dashboard",
-            "image_url": uploaded_url,
-            "fallback_icon": "fastfood",
-        },
-    )
-    assert r_icon.status_code == 200, r_icon.text
-    assert r_icon.json()["key"] == "business_chicken"
-    assert r_icon.json()["image_url"] == uploaded_url
-
-    # Superadmin updates business icon
-    r_biz_icon = client.put(
-        "/api/v1/admin/businesses/chicken/icon",
-        headers=admin_headers,
-        json={"icon_url": uploaded_url},
-    )
-    assert r_biz_icon.status_code == 200, r_biz_icon.text
-    assert r_biz_icon.json()["icon_url"] == uploaded_url
-
-    # Mobile endpoint fetches screen icons
-    r_mobile = client.get("/api/v1/mobile/icons")
-    assert r_mobile.status_code == 200
-    mobile_data = r_mobile.json()
-    assert "business_chicken" in mobile_data["icons"]
-    assert mobile_data["icons"]["business_chicken"]["image_url"] == uploaded_url
-    assert mobile_data["business_icons"]["chicken"] == uploaded_url
-
-    # Reverting to the default icon accepts an empty image_url
-    r_remove = client.put(
-        "/api/v1/admin/icons/business_chicken",
-        headers=admin_headers,
-        json={"label": "Chicken Shop Mobile Icon", "screen": "dashboard", "image_url": ""},
-    )
-    assert r_remove.status_code == 200, r_remove.text
-    assert r_remove.json()["image_url"] == ""
-

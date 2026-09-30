@@ -1,37 +1,22 @@
 import asyncio
-import base64
-import os
 import time
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, File, Header, Query, Response, UploadFile
+from fastapi import Depends, FastAPI, Header, Query
 from fastapi.responses import JSONResponse, RedirectResponse
-from starlette.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
 from . import db as database
 from .db import get_db
-from .images import (
-    MAX_IMAGE_BYTES,
-    UPLOAD_DIR,
-    asset_url,
-    match_asset_id,
-    read_bounded,
-    release_orphaned_asset,
-    store_image,
-    upload_response,
-)
 from .models import (
-    AppIcon,
     Assignment,
     Batch,
     BatchLog,
     Business,
     Day,
-    ImageAsset,
     Journal,
     Operation,
     Ownership,
@@ -42,13 +27,9 @@ from .models import (
     Withdrawal,
 )
 from .schemas import (
-    AppIconOut,
-    AppIconUpdate,
-    Base64IconUpload,
     BatchCreate,
     BatchUpdate,
     BusinessCreate,
-    BusinessIconUpdate,
     Buy,
     ChangePassword,
     CloseDay,
@@ -104,11 +85,8 @@ app = FastAPI(
     description="Admin operations and fractional ownership MVP. All money uses integer paisa. See README for settlement rules and integration boundaries.",
 )
 
-# Legacy static mount: files written before the database-image migration are
-# still served from here until an operator removes them (see README). New
-# uploads are stored as bytes in image_assets and never touch this directory.
-os.makedirs(os.path.join(UPLOAD_DIR, "icons"), exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+# Legacy static mount removed along with database icon storage; the API no
+# longer serves or accepts any image files.
 Key = Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=100)]
 DB = Annotated[object, Depends(get_db, scope="function")]
 
@@ -387,156 +365,6 @@ async def superadmin_verify_kyc(user_id: str, db: DB, u=Depends(root)):
         kyc_status=target.kyc_status,
         assigned_businesses=businesses,
     )
-
-
-@app.get("/api/v1/images/{asset_id}", tags=["Mobile App"])
-async def get_image(
-    asset_id: str,
-    db: DB,
-    if_none_match: Annotated[str | None, Header()] = None,
-):
-    """Serve raw image bytes stored in image_assets.
-
-    Public like the legacy /uploads files it replaces: mobile clients load
-    icons without API credentials. Asset IDs are immutable — a replacement is
-    a new upload with a new ID and URL — so responses are cacheable forever.
-    """
-    result = await db.execute(
-        select(
-            ImageAsset.data, ImageAsset.content_type, ImageAsset.sha256
-        ).where(ImageAsset.id == asset_id)
-    )
-    row = result.first()
-    if row is None:
-        fail("Image not found", 404)
-    payload, content_type, digest = row
-    etag = f'"{digest}"'
-    headers = {
-        "Cache-Control": "public, max-age=31536000, immutable",
-        "X-Content-Type-Options": "nosniff",
-        "ETag": etag,
-    }
-    if if_none_match and etag in [tag.strip() for tag in if_none_match.split(",")]:
-        return Response(status_code=304, headers=headers)
-    return Response(
-        content=bytes(payload), media_type=content_type, headers=headers
-    )
-
-
-@app.get("/api/v1/mobile/icons", tags=["Mobile App"])
-async def get_mobile_icons(db: DB):
-    res = await db.execute(select(AppIcon))
-    icons = res.scalars().all()
-    b_res = await db.execute(select(Business.id, Business.type, Business.icon_url))
-    biz_icons = {row[0]: row[2] for row in b_res.all() if row[2]}
-    return {
-        "icons": {
-            i.key: {
-                "label": i.label,
-                "screen": i.screen,
-                "image_url": i.image_url,
-                "fallback": i.fallback_icon,
-            }
-            for i in icons
-        },
-        "business_icons": biz_icons,
-    }
-
-
-@app.get("/api/v1/admin/icons", tags=["Administration"], response_model=list[AppIconOut])
-async def list_admin_icons(db: DB, u=Depends(root)):
-    res = await db.execute(select(AppIcon).order_by(AppIcon.screen, AppIcon.key))
-    return res.scalars().all()
-
-
-async def _verified_asset_reference(db, url: str) -> str | None:
-    """Resolve an /api/v1/images/{id} value to a known asset id, else None."""
-    asset_id = match_asset_id(url)
-    if not asset_id:
-        return None
-    result = await db.execute(select(ImageAsset.id).where(ImageAsset.id == asset_id))
-    if result.scalar_one_or_none() is None:
-        fail("Referenced image no longer exists; upload it again", 400)
-    return asset_id
-
-
-@app.put(
-    "/api/v1/admin/icons/{key}",
-    tags=["Administration"],
-    response_model=AppIconOut,
-)
-async def set_app_icon(key: str, payload: AppIconUpdate, db: DB, u=Depends(root)):
-    res = await db.execute(select(AppIcon).where(AppIcon.key == key))
-    icon = res.scalar_one_or_none()
-    asset_id = await _verified_asset_reference(db, payload.image_url)
-    old_asset_id = icon.asset_id if icon else None
-    if not icon:
-        icon = AppIcon(
-            key=key,
-            label=payload.label or key.replace("_", " ").title(),
-            screen=payload.screen,
-            image_url=payload.image_url,
-            fallback_icon=payload.fallback_icon,
-            asset_id=asset_id,
-        )
-        db.add(icon)
-    else:
-        if payload.label:
-            icon.label = payload.label
-        icon.screen = payload.screen
-        icon.image_url = payload.image_url
-        icon.asset_id = asset_id
-        if payload.fallback_icon:
-            icon.fallback_icon = payload.fallback_icon
-        elif not payload.image_url:
-            # Reverting to the default icon also drops the stale fallback.
-            icon.fallback_icon = None
-    await db.flush()
-    if old_asset_id and old_asset_id != icon.asset_id:
-        await release_orphaned_asset(db, old_asset_id)
-    return icon
-
-
-@app.put("/api/v1/admin/businesses/{business_id}/icon", tags=["Administration"])
-async def update_business_icon(
-    business_id: str, payload: BusinessIconUpdate, db: DB, u=Depends(root)
-):
-    biz = await get(db, Business, business_id)
-    if not biz:
-        fail("Business not found", 404)
-    # An empty icon_url resets the business back to its default sector tile.
-    asset_id = await _verified_asset_reference(db, payload.icon_url)
-    old_asset_id = biz.icon_asset_id
-    biz.icon_url = payload.icon_url
-    biz.icon_asset_id = asset_id
-    await db.flush()
-    if old_asset_id and old_asset_id != biz.icon_asset_id:
-        await release_orphaned_asset(db, old_asset_id)
-    return {"id": biz.id, "name": biz.name, "icon_url": biz.icon_url}
-
-
-@app.post("/api/v1/admin/icons/upload", tags=["Administration"])
-async def upload_icon_file(
-    db: DB, file: UploadFile = File(...), u=Depends(root)
-):
-    raw = await read_bounded(file)
-    asset = await store_image(db, raw, file.filename)
-    return upload_response(asset)
-
-
-@app.post("/api/v1/admin/icons/upload-base64", tags=["Administration"])
-async def upload_icon_base64(payload: Base64IconUpload, db: DB, u=Depends(root)):
-    raw_data = payload.data
-    if "," in raw_data:
-        raw_data = raw_data.split(",", 1)[1]
-    try:
-        binary_data = base64.b64decode(raw_data, validate=True)
-    except Exception:
-        fail("Invalid base64 image data", 400)
-    if len(binary_data) > MAX_IMAGE_BYTES:
-        fail("Image size exceeds 2MB limit", 400)
-    asset = await store_image(db, binary_data, payload.filename)
-    return upload_response(asset)
 
 
 @app.post("/api/v1/admin/suppliers", tags=["Suppliers"], status_code=201)

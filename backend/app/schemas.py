@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import Annotated, Literal
 
@@ -136,39 +136,4 @@ class UserOut(BaseModel):
 
 class UserRoleUpdate(Input):
     role: Literal["SUPERADMIN", "ADMIN", "INVESTOR"]
-
-
-class AppIconOut(BaseModel):
-    id: str
-    key: str
-    label: str
-    screen: str
-    image_url: str
-    fallback_icon: str | None = None
-    asset_id: str | None = None
-    updated_at: datetime | str | None = None
-
-
-class AppIconUpdate(Input):
-    label: Name | None = None
-    screen: str = Field(default="dashboard", max_length=50)
-    # An empty string reverts the screen back to its default system icon.
-    image_url: str = Field(max_length=500)
-    fallback_icon: str | None = Field(default=None, max_length=50)
-
-
-class BusinessIconUpdate(Input):
-    # An empty string resets the business back to its default sector icon.
-    icon_url: str = Field(max_length=500)
-
-
-class Base64IconUpload(Input):
-    filename: str = Field(default="icon.png", max_length=120)
-    # Bound the request before decoding: 2 MB of image is ~2.72 MB base64,
-    # plus allowance for a data-URL prefix and whitespace.
-    data: str = Field(
-        min_length=10,
-        max_length=3_500_000,
-        description="Base64 encoded image data",
-    )
 

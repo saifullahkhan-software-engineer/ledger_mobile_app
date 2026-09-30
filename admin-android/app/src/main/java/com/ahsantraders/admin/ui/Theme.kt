@@ -85,7 +85,7 @@ private val urdu = mapOf(
     "Yield (kg)" to "کل وزن (کلوگرام)", "Sale price per kg (Rs.)" to "فی کلو فروخت قیمت (روپے)",
     "Additional expense (Rs.)" to "اضافی اخراجات (روپے)", "Current password" to "موجودہ پاس ورڈ",
     "New password" to "نیا پاس ورڈ", "Confirm password" to "پاس ورڈ کی تصدیق", "Dismiss" to "بند کریں",
-    "Users" to "صارفین", "Screen icons" to "اسکرین آئیکنز", "Add user" to "صارف شامل کریں", "Search users" to "صارفین تلاش کریں",
+    "Users" to "صارفین", "Add user" to "صارف شامل کریں", "Search users" to "صارفین تلاش کریں",
     "Investors" to "سرمایہ کار", "Managers" to "مینیجرز", "Super admin" to "سپر ایڈمن", "Verify KYC" to "کے وائی سی تصدیق کریں",
     "Verify" to "تصدیق کریں", "Business access" to "کاروبار تک رسائی", "Create manager" to "مینیجر بنائیں", "Create investor" to "سرمایہ کار بنائیں",
     "Super admin actions" to "سپر ایڈمن کارروائیاں", "Add image" to "تصویر شامل کریں", "Change" to "تبدیل کریں", "Save" to "محفوظ کریں",

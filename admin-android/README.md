@@ -24,8 +24,6 @@ An Admin-first implementation of the supplied screen reference, using Kotlin, Je
 - Keystore-encrypted session token. No stored passwords, network payload logs, hardcoded credentials or demo-data fallback.
 - Exact rupee-to-paisa conversion and persistent idempotency keys for supported financial commands.
 - Owner-only Users & Access module: list/search users, add managers (with one or more business assignments) or investors, change roles, assign/remove businesses, and verify investor KYC.
-- Owner-only Screen icons module: set the image for each mobile screen (app logo, business cards, quick actions) primarily by uploading from the device gallery (with an on-screen preview before saving). Uploaded image bytes are stored by the backend in PostgreSQL and served back from a short relative `/api/v1/images/{id}` URL, which the app resolves against the configured server — pasting an external image URL remains available as a separate option.
-- Owner-only business icons: set, replace or remove a custom image per business (upload or external URL) next to the screen icons.
 - Drawer shows the signed-in admin's name, phone and role; owner-only entries appear only for SUPERADMIN.
 - Phone inputs accept local (0300…), +92… and 92… formats on login and add-user; they are normalized to E.164 before sending.
 
@@ -225,21 +223,17 @@ No Hilt, code generation, WebView or bundled mock backend. The financial source 
 
 ### Small backend additions
 
-- `POST /api/v1/admin/icons/upload` (multipart) and `POST /api/v1/admin/icons/upload-base64` — validate the actual image bytes (PNG/JPEG/WebP/ICO, max 2 MB decoded; SVG rejected) and store them as binary in the PostgreSQL `image_assets` table, returning a relative `/api/v1/images/{id}` URL. The admin app calls `upload-base64` from the gallery picker.
-- `GET /api/v1/images/{id}` — public, serves the exact stored bytes with the validated `Content-Type`, `Content-Length`, `Cache-Control: immutable`, `ETag` and `X-Content-Type-Options: nosniff`; 404 for unknown IDs. Asset IDs are immutable: a replacement upload returns a new URL, so cached images never go stale.
-- `PUT /api/v1/admin/businesses/{business_id}/icon` — save a custom business icon URL (pass an empty `icon_url` to revert to the default sector tile).
-- `PUT /api/v1/admin/icons/{key}` — save a screen-icon URL (pass an empty `image_url` to revert to the default icon). When the URL is an `/api/v1/images/{id}` reference, the icon row is associated with that image asset.
 - `GET /api/v1/admin/batches?business_id=...&offset=...&limit=...` — includes historical harvested batches.
 - `GET /api/v1/admin/ledger/{day_id}` — refreshes a specific day including current closure status.
 - `GET /api/v1/admin/operations?business_id=…&kind=…&start=…&end=…&offset=…&limit=…` — individual transactions of one business, newest business date first, each row carrying its business `date`; `kind` serves the last-5 tables and the history type chips. Backed by a new `operations.day_id` index that legacy databases gain automatically.
 
-The database stores the image bytes themselves (BYTEA) plus a short serving URL on each icon/business row; icon lists and the mobile configuration only ever carry URLs, never base64/binary content. Files previously uploaded under `backend/uploads/` continue to be served from the legacy static mount until you run `python -m app.manage migrate-images` and remove them manually (see `../backend/README.md`).
+All icon and logo artwork is bundled in the APK (`app/src/main/res/drawable*`). The app never downloads, uploads or caches images, and the backend has no image endpoints.
 
 ## Verification status — important
 
-- Backend suite, including database-image upload/serving/migration tests, midnight auto-close/settlement, owner corrections and Retrofit path/query/header contract checks: **55 passed, 1 PostgreSQL-only test skipped** in this sandbox (SQLite; the PostgreSQL run happens in CI and has not been observed).
+- Backend suite, including midnight auto-close/settlement, owner corrections, the schema-upgrade/`drop-icon-schema` CLI and Retrofit path/query/header contract checks: **48 passed, 2 skipped** in this sandbox (SQLite; the PostgreSQL run happens in CI and has not been observed).
 - All Kotlin files passed structural checks; these checks do not establish compilation or UI correctness.
-- Native source includes JVM test methods for exact money, quantity limits, Unicode, batch rules, server-URL resolution (including `/api/v1/images/…` relative URLs), retry hashing and Retrofit requests/deserialization.
+- Native source includes JVM test methods for exact money, quantity limits, Unicode, batch rules, server-URL resolution, retry hashing and Retrofit requests/deserialization.
 - **Android Gradle build, JVM tests, lint, emulator UI and device networking have not been executed here.** The sandbox has no JDK/Android SDK and the official tool-download attempts failed. No APK is being claimed as built or verified.
 - CI configuration is provided but has not been run remotely. Please run the build command above locally and share any errors for correction.
 

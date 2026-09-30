@@ -13,7 +13,7 @@ import retrofit2.HttpException
 import java.time.LocalDate
 import javax.inject.Inject
 
-enum class Page { HOME, BUSINESS, LEDGER, DAY, OPERATION, STOCK, SUPPLIERS, BILLS, EXPENSES, REPORTS, SETTINGS, BATCHES, BATCH, SETTLEMENTS, USERS, USER, ADD_USER, ICONS }
+enum class Page { HOME, BUSINESS, LEDGER, DAY, OPERATION, STOCK, SUPPLIERS, BILLS, EXPENSES, REPORTS, SETTINGS, BATCHES, BATCH, SETTLEMENTS, USERS, USER, ADD_USER }
 data class UserDraft(val role: String = "ADMIN", val values: Map<String, String> = emptyMap(), val businesses: Set<String> = emptySet())
 data class AdminState(
     val user: Profile? = null, val loading: Boolean = false, val saving: Boolean = false,
@@ -36,8 +36,7 @@ data class AdminState(
     val historyStart: String? = null, val historyEnd: String? = null, val recent: List<Operation> = emptyList(),
     val reportBusiness: String? = null, val draft: Draft? = null, val language: String = "en",
     val users: List<UserOut> = emptyList(), val userDetail: UserOut? = null, val userDraft: UserDraft? = null,
-    val userSearch: String = "", val userFilter: String = "", val icons: List<AppIconItem> = emptyList(),
-    val uploading: Boolean = false
+    val userSearch: String = "", val userFilter: String = "",
 )
 
 @HiltViewModel
@@ -56,32 +55,6 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
         if (e is HttpException && e.code() == 401) {
             repo.clearSession(); updateState { AdminState(language = it.language, error = apiError(e)) }
         } else updateState { it.copy(error = apiError(e)) }
-    }
-    fun loadMobileIcons() {
-        readJob?.cancel()
-        val turn = ++generation
-        readJob = viewModelScope.launch {
-            try {
-                val response = repo.api.mobileIcons()
-                val iconsObj = response.getAsJsonObject("icons")
-                val iconsList = mutableListOf<AppIconItem>()
-                for (key in iconsObj.keySet()) {
-                    val iconData = iconsObj.getAsJsonObject(key)
-                    iconsList.add(AppIconItem(
-                        id = key, // Use key as id since mobile endpoint doesn't return id
-                        key = key,
-                        label = iconData.get("label").asString,
-                        screen = iconData.get("screen").asString,
-                        image_url = iconData.get("image_url").asString,
-                        fallback_icon = if (iconData.has("fallback")) iconData.get("fallback").asString else null
-                    ))
-                }
-                if (turn == generation) updateState { it.copy(icons = iconsList) }
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                // Silently fail - icons will use fallbacks
-            }
-        }
     }
     fun login(server: String, phone: String, password: String) {
         if (state.value.saving || state.value.loading) return
@@ -133,8 +106,7 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
         when (s.page) {
             Page.HOME -> {
                 val result = api.dashboard()
-                val iconRows = runCatching { api.icons() }.getOrDefault(emptyList())
-                updateState { it.copy(dashboard = result, icons = if (iconRows.isNotEmpty()) iconRows else it.icons) }
+                updateState { it.copy(dashboard = result) }
             }
             Page.BUSINESS -> {
                 val summary = api.summary(id)
@@ -205,10 +177,6 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
                 updateState { it.copy(userDetail = detail) }
             }
             Page.ADD_USER -> Unit
-            Page.ICONS -> {
-                val rows = api.icons()
-                updateState { it.copy(icons = rows) }
-            }
             Page.SETTINGS -> { val user = api.profile(); updateState { it.copy(user = user) } }
         }
     }
@@ -336,7 +304,6 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
         updateState { it.copy(page = Page.ADD_USER, userDetail = null, userDraft = UserDraft(), error = null, draft = null) }
         refresh()
     }
-    fun openIcons() { if (isSuperAdmin()) go(Page.ICONS) }
     fun setUserFilter(filter: String) { updateState { it.copy(userFilter = filter) } }
     fun setUserSearch(search: String) { updateState { it.copy(userSearch = search) } }
     fun setUserRole(role: String) { updateState { it.copy(userDraft = (it.userDraft ?: UserDraft()).copy(role = role)) } }
@@ -387,52 +354,6 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
         val updated = repo.api.userDetail(target.id)
         updateState { it.copy(userDetail = updated, notice = if (enabled) "Business access granted." else "Business access removed.") }
         loadPage()
-    }
-    fun setScreenIconFromUrl(key: String, label: String, imageUrl: String) = write {
-        repo.api.setIcon(key, AppIconUpdateReq(label = label, screen = "dashboard", image_url = imageUrl))
-        val icons = repo.api.icons()
-        updateState { it.copy(icons = icons, notice = "Screen icon updated.") }
-        loadPage()
-    }
-    fun setScreenIconFromBytes(key: String, label: String, bytes: ByteArray, name: String) = write {
-        val uploaded = runUpload(bytes, name)
-        repo.api.setIcon(key, AppIconUpdateReq(label = label, screen = "dashboard", image_url = uploaded.image_url))
-        val icons = repo.api.icons()
-        updateState { it.copy(icons = icons, notice = "Screen icon uploaded and updated.") }
-        loadPage()
-    }
-    fun setBusinessIconFromUrl(business: Business, iconUrl: String) = write {
-        repo.api.setBusinessIcon(business.id, BusinessIconUpdateReq(icon_url = iconUrl))
-        val businesses = repo.api.businesses().sortedBy { businessOrdinal(it.type) }
-        updateState { it.copy(businesses = businesses, business = businesses.find { b -> b.id == business.id }, notice = "Business icon updated.") }
-        loadPage()
-    }
-    fun setBusinessIconFromBytes(business: Business, bytes: ByteArray, name: String) = write {
-        val uploaded = runUpload(bytes, name)
-        repo.api.setBusinessIcon(business.id, BusinessIconUpdateReq(icon_url = uploaded.image_url))
-        val businesses = repo.api.businesses().sortedBy { businessOrdinal(it.type) }
-        updateState { it.copy(businesses = businesses, business = businesses.find { b -> b.id == business.id }, notice = "Business icon uploaded and updated.") }
-        loadPage()
-    }
-    fun removeScreenIcon(key: String, label: String) = write {
-        repo.api.setIcon(key, AppIconUpdateReq(label = label, screen = "dashboard", image_url = ""))
-        val icons = repo.api.icons()
-        updateState { it.copy(icons = icons, notice = "Screen icon reverted to the default.") }
-        loadPage()
-    }
-    fun removeBusinessIcon(business: Business) = write {
-        repo.api.setBusinessIcon(business.id, BusinessIconUpdateReq(icon_url = ""))
-        val businesses = repo.api.businesses().sortedBy { businessOrdinal(it.type) }
-        updateState { it.copy(businesses = businesses, business = businesses.find { b -> b.id == business.id }, notice = "Business icon reverted to the default.") }
-        loadPage()
-    }
-    private suspend fun runUpload(bytes: ByteArray, name: String): IconUploadResult {
-        updateState { it.copy(uploading = true) }
-        return try {
-            repo.api.uploadIconBase64(Base64IconUploadReq(filename = name, data = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)))
-        } finally {
-            updateState { it.copy(uploading = false) }
-        }
     }
     fun range(start: String, end: String, businessId: String?) {
         try {

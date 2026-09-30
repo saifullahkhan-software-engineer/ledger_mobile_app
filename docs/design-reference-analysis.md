@@ -34,7 +34,7 @@ Legend: ✅ already supported · ⚠️ supported but rendered differently today
 |---|---|
 | Shop logo + name + tagline in header, notification bell | ⚠️ We show a greeting + brand strip; logo/name come from `businesses`. Tagline and bell need new UI (bell has no backend events to show). |
 | Location pill "Mainwala Bangla Stop" | ❌ `businesses` has no address/location field. |
-| Hero promo image with script text | ⚠️ Our `app_icons` image-slot system can serve this as an uploaded banner (new key, e.g. `dashboard_hero`); no backend change. |
+| Hero promo image with script text | ❌ Custom/uploaded artwork was removed; a hero banner would need a new bundled drawable. |
 | 2×2 tiles: SALE / PURCHASE / EXPENSES / REPORT (with sub-labels) | ⚠️ We currently have Home quick-actions (Add sale, Add expense) + per-business cards; tiles would replace them. Purple "Report" accent is new to the palette. |
 | Bottom nav Home · Transactions · Reports · More | ⚠️ Ours is Home · Sales · Expenses · Reports; "Sales/Expenses" are form shortcuts, and the drawer opens from ☰ only on Home. Adopting the mockup means Sales/Expenses become real screens and **More** opens the drawer. |
 | "Other sale" tile (our recent addition) | ❌ not in the mockup (it predates the request). Keep it as a 4th tile for chicken businesses. |
@@ -170,8 +170,8 @@ No change is needed to settlement, close or correction logic for any of this.
    two-series line chart, with the COGS-vs-cash label from §4.1.
 4. **Shop screen (#3–#5):** fields first, then Item Price/Set Target, then Backup Data;
    Help & Support is static.
-5. **Dashboard polish:** hero banner via the existing `app_icons` slots, location pill,
-   tile sub-labels.
+5. **Dashboard polish:** bundled hero banner artwork, location pill, tile
+   sub-labels.
 
 ## 7. Risks
 

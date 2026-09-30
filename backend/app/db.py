@@ -7,14 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
-def ensure_business_icon_column_on_connection(conn):
-    """Add the nullable icon column without changing existing business records."""
-    columns = inspect(conn).get_columns("businesses")
-    if not any(column["name"] == "icon_url" for column in columns):
-        clause = "IF NOT EXISTS " if conn.dialect.name == "postgresql" else ""
-        conn.execute(text(f"ALTER TABLE businesses ADD COLUMN {clause}icon_url VARCHAR(500)"))
-
-
 def ensure_column_on_connection(conn, table, column, ddl):
     """Add one missing column to an existing table; repeatable and additive."""
     if not inspect(conn).has_table(table):
@@ -41,12 +33,11 @@ def ensure_index_on_connection(conn, table, name, columns):
 
 
 def ensure_additive_columns_on_connection(conn):
-    """Self-heal legacy databases: icon column, bird count, expense category,
-    counted stock and the operation history index. Safe to run on every
-    connection; never touches data."""
+    """Self-heal legacy databases: bird count, expense category, counted stock
+    and the operation history index. Safe to run on every connection; never
+    touches data."""
     if not inspect(conn).has_table("businesses"):
         return
-    ensure_business_icon_column_on_connection(conn)
     ensure_column_on_connection(conn, "operations", "count", "count INTEGER")
     ensure_column_on_connection(conn, "operations", "category", "category VARCHAR(50)")
     ensure_column_on_connection(
@@ -55,10 +46,45 @@ def ensure_additive_columns_on_connection(conn):
     ensure_index_on_connection(conn, "operations", "ix_operations_day_id", ["day_id"])
 
 
-async def ensure_business_icon_column():
-    """Backfill legacy Postgres/SQLite databases that predate the business icon column."""
-    async with engine.begin() as conn:
-        await conn.run_sync(ensure_business_icon_column_on_connection)
+# Tables and columns that belonged to the removed database-backed icon storage.
+# They are no longer part of the ORM metadata, so `init-db` never recreates
+# them; this is the one-time removal path for databases that still have them.
+ICON_TABLES = ("app_icons", "image_assets")
+ICON_COLUMNS = (
+    ("app_icons", "asset_id"),
+    ("businesses", "icon_asset_id"),
+    ("businesses", "icon_url"),
+)
+
+
+def drop_icon_schema_on_connection(conn) -> dict:
+    """Remove every trace of the database-backed icon schema. Repeatable.
+
+    Columns are dropped before their tables so the foreign keys pointing at
+    ``image_assets`` disappear with them. Old SQLite builds without
+    ``ALTER TABLE DROP COLUMN`` are reported as skipped instead of failing, so
+    the operator can see what still needs manual attention.
+    """
+    report: dict[str, list] = {"dropped_tables": [], "dropped_columns": [], "skipped": []}
+    inspector = inspect(conn)
+    for table, column in ICON_COLUMNS:
+        if not inspector.has_table(table):
+            continue
+        if not any(c["name"] == column for c in inspector.get_columns(table)):
+            continue
+        try:
+            conn.execute(text(f"ALTER TABLE {table} DROP COLUMN {column}"))
+            report["dropped_columns"].append(f"{table}.{column}")
+        except Exception as exc:
+            report["skipped"].append(
+                {"target": f"{table}.{column}", "reason": str(exc).splitlines()[0][:200]}
+            )
+    for table in ICON_TABLES:
+        if not inspector.has_table(table):
+            continue
+        conn.execute(text(f"DROP TABLE {table}"))
+        report["dropped_tables"].append(table)
+    return report
 
 
 async def ensure_additive_columns():

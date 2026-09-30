@@ -35,15 +35,6 @@ fun normalizePhone(input: String): String {
     }
 }
 
-/** Resolves relative server paths ('/api/v1/images/…' database-backed image assets, or legacy '/uploads/…' files) into absolute URLs for image display. */
-fun absoluteUrl(base: String, path: String?): String {
-    if (path.isNullOrBlank()) return ""
-    if (path.startsWith("http://") || path.startsWith("https://")) return path
-    val normalized = base.trim().trimEnd('/')
-    val trimmed = path.trim()
-    return if (trimmed.startsWith('/')) normalized + trimmed else trimmed
-}
-
 fun moneyInput(text: String, zeroAllowed: Boolean = false): Long {
     val number = text.trim().toBigDecimalOrNull() ?: throw IllegalArgumentException("Enter a valid amount in rupees")
     val paisa = try { number.setScale(2, RoundingMode.UNNECESSARY).movePointRight(2).longValueExact() }

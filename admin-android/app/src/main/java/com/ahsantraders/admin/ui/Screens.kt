@@ -29,36 +29,6 @@ import java.time.LocalDate
 import kotlin.math.abs
 
 
-fun findActionIconUrl(server: String, icons: List<AppIconItem>, vararg candidateKeys: String): String? {
-    for (key in candidateKeys) {
-        val found = icons.find { it.key.equals(key, ignoreCase = true) }
-        val raw = found?.image_url?.trim().orEmpty()
-        if (raw.isNotBlank()) {
-            return absoluteUrl(server, raw)
-        }
-    }
-    return null
-}
-
-fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconItem>): String? {
-    val bUrl = business.icon_url?.trim().orEmpty()
-    if (bUrl.isNotBlank()) {
-        return absoluteUrl(server, bUrl)
-    }
-    val slotKey = when (business.type.uppercase()) {
-        "CHICKEN" -> "business_chicken"
-        "LPG" -> "business_lpg"
-        "BROILER" -> "business_broiler"
-        else -> "business_${business.type.lowercase()}"
-    }
-    val found = icons.find { it.key.equals(slotKey, ignoreCase = true) }
-    val raw = found?.image_url?.trim().orEmpty()
-    if (raw.isNotBlank()) {
-        return absoluteUrl(server, raw)
-    }
-    return null
-}
-
 @Composable fun HomeScreen(s: AdminState, vm: AdminViewModel, choose: (FormKind) -> Unit) {
     Text(if (s.language == "ur") "خوش آمدید، ${s.user?.name.orEmpty()}" else "Welcome, ${s.user?.name.orEmpty()}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
     Text(if (s.language == "ur") "اپنے کاروبار ایک جگہ سنبھالیں" else "Your businesses. One clear picture.", color = Muted)
@@ -88,10 +58,8 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(9.dp)
                     ) {
-                        val bizIconUrl = findBusinessIconUrl(vm.server, business, s.icons)
-                        DynamicSectorIcon(
+                        SectorIcon(
                             type = business.type,
-                            imageUrl = bizIconUrl,
                             tint = Color.White,
                             modifier = Modifier.size(35.dp)
                         )
@@ -112,33 +80,24 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
         }
     }
     SectionTitle("Quick actions")
-    val saleIconUrl = findActionIconUrl(vm.server, s.icons, "quick_sale", "ADD_SALE_ICON", "add_sale", "sale_icon")
-    val expenseIconUrl = findActionIconUrl(vm.server, s.icons, "quick_expense", "ADD_EXPENSE_ICON", "add_expense", "expense_icon")
-    val reportsIconUrl = findActionIconUrl(vm.server, s.icons, "quick_reports", "REPORTS_ICON", "reports", "reports_icon")
 
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         ActionTile(
             label = "Add sale",
             icon = Icons.Default.AddCircle,
-            customImageUrl = saleIconUrl,
-            builtInKeys = listOf("quick_sale", "ADD_SALE_ICON", "add_sale", "sale_icon"),
             modifier = Modifier.weight(1f)
         ) { choose(FormKind.SALE) }
         ActionTile(
             label = "Add expense",
             icon = Icons.Default.AccountBalanceWallet,
             color = Color(0xFFE58B19),
-            customImageUrl = expenseIconUrl,
-            builtInKeys = listOf("quick_expense", "ADD_EXPENSE_ICON", "add_expense", "expense_icon"),
             modifier = Modifier.weight(1f)
         ) { choose(FormKind.EXPENSE) }
     }
     LinkRow(
         title = "Overall View",
         icon = Icons.Default.Insights,
-        subtitle = "Overall view and per-business charts",
-        customImageUrl = reportsIconUrl,
-        builtInKeys = listOf("quick_reports", "REPORTS_ICON", "reports", "reports_icon")
+        subtitle = "Overall view and per-business charts"
     ) { vm.go(Page.REPORTS) }
     
     Surface(color = Forest, shape = RoundedCornerShape(18.dp)) {
@@ -151,13 +110,11 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
 
 @Composable fun BusinessScreen(s: AdminState, vm: AdminViewModel, confirmClose: (Day) -> Unit) {
     val b = s.business ?: return
-    val bizBannerIconUrl = findBusinessIconUrl(vm.server, b, s.icons)
     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Brush.horizontalGradient(listOf(sectorColor(b.type), Forest))).padding(24.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            // Circular container (not square) for the uploaded business icon.
-            DynamicSectorIcon(
+            // Circular container (not square) for the bundled sector artwork.
+            SectorIcon(
                 type = b.type,
-                imageUrl = bizBannerIconUrl,
                 tint = Color.White,
                 modifier = Modifier.size(54.dp)
             )
@@ -192,9 +149,6 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
         }
     }
 
-    val saleIconUrl = findActionIconUrl(vm.server, s.icons, "quick_sale", "ADD_SALE_ICON", "add_sale", "sale_icon")
-    val expenseIconUrl = findActionIconUrl(vm.server, s.icons, "quick_expense", "ADD_EXPENSE_ICON", "add_expense", "expense_icon")
-    val stockIconUrl = findActionIconUrl(vm.server, s.icons, "quick_stock", "STOCK_ICON", "stock_icon", "stock")
 
     if (b.type == "BROILER") {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -207,8 +161,6 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
             ActionTile(
                 label = "Add sale",
                 icon = Icons.Default.AddCircle,
-                customImageUrl = saleIconUrl,
-                builtInKeys = listOf("quick_sale", "ADD_SALE_ICON", "add_sale", "sale_icon"),
                 modifier = Modifier.weight(1f)
             ) { vm.openForm(FormKind.SALE) }
             ActionTile(
@@ -223,8 +175,6 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
                 label = "Add expense",
                 icon = Icons.Default.AccountBalanceWallet,
                 color = Color(0xFFE58B19),
-                customImageUrl = expenseIconUrl,
-                builtInKeys = listOf("quick_expense", "ADD_EXPENSE_ICON", "add_expense", "expense_icon"),
                 modifier = Modifier.weight(1f)
             ) { vm.openForm(FormKind.EXPENSE) }
             if (b.type == "CHICKEN") ActionTile(
@@ -236,10 +186,10 @@ fun findBusinessIconUrl(server: String, business: Business, icons: List<AppIconI
         }
     }
     if (b.type != "BROILER") LinkRow("Daily summary", Icons.Default.CalendarMonth, businessDate()) { vm.openDayAt(businessDate()) }
-    LinkRow("Stock", Icons.Default.Inventory2, customImageUrl = stockIconUrl, builtInKeys = listOf("quick_stock", "STOCK_ICON", "stock_icon", "stock")) { vm.go(Page.STOCK) }
+    LinkRow("Stock", Icons.Default.Inventory2) { vm.go(Page.STOCK) }
     if (b.type != "BROILER") {
         LinkRow("Transaction history", Icons.Default.ReceiptLong) { vm.go(Page.LEDGER) }
-        LinkRow("Expenses", Icons.Default.AccountBalanceWallet, customImageUrl = expenseIconUrl, builtInKeys = listOf("quick_expense", "ADD_EXPENSE_ICON", "add_expense", "expense_icon")) { vm.go(Page.EXPENSES) }
+        LinkRow("Expenses", Icons.Default.AccountBalanceWallet) { vm.go(Page.EXPENSES) }
         LinkRow("Suppliers", Icons.Default.LocalShipping) { vm.go(Page.SUPPLIERS) }
         summary?.day?.takeIf { it.status == "OPEN" }?.let { day ->
             OutlinedButton(onClick = { confirmClose(day) }, enabled = !s.saving, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Lock, null); Spacer(Modifier.width(8.dp)); Text(tr("Close day")) }

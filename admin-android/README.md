@@ -11,6 +11,8 @@ An Admin-first implementation of the supplied screen reference, using Kotlin, Je
 - Assigned-business drawer and red Chicken, green Broiler and blue LPG module cards.
 - Chicken/LPG purchase, sale, expense and "Other sale" (byproduct) forms; LPG retail/commercial channel selection. Sale and purchase amounts are a **fixed total**, not weight × a per-kg rate.
 - Chicken shop **wastage**: optional kg on a sale, plus a dedicated "Record wastage" action, so leftover cutting loss is taken out of stock and the day-end weight matches.
+- Chicken purchases can record the **live weight** of the birds bought: the dressed meat that goes into stock is capped at 65% of it (leave the dressed weight empty to use the full 65%), and the transaction detail shows the live weight and the cost per dressed kg.
+- Profit and loss reads **revenue − cost of sales − wastage loss − expenses** on the day screen and the reports overview. A correction never re-prices a sale's cost.
 - Stock screen shows remaining **kg**, **number of birds** (or cylinders) and **price**, and can be edited.
 - Supplier creation and purchase history; optional supplier on a purchase.
 - Stock and carrying cost; transaction history that lists **single transactions** (All / Sale / Purchase / Expense / Other sale chips plus Latest / Today / 7 days / This month ranges) with the day overview on a "Days" tab, and operation detail.
@@ -171,6 +173,8 @@ Use a development database, not real financial records.
 2. Add sale: quantity **5 kg**, amount **Rs 1,000**.
 3. Add expense: **Rs 100**.
 4. Verify remaining stock **5 kg**, inventory cost **Rs 500**, provisional net profit **Rs 400**.
+   - Live-weight check: add a purchase with live weight **100 kg**, dressed weight empty, amount **Rs 15,000**. Stock gains **65 kg**, and the transaction detail shows cost per kg **Rs 230.77**. Typing dressed weight **70 kg** instead saves **65 kg** and says it was capped.
+   - Correction check (owner): after a later, dearer purchase, edit only the note of an earlier sale. Its cost and the day's net profit must not change.
 5. Close Day early, or leave the app and let the date close itself at midnight Pakistan time; review the distribution result.
 6. Open Transaction history → that date. Confirm CLOSED and inspect the operations.
 7. Verify another write for the closed date is rejected, and that as the owner you can still correct an operation on that closed date (its summary changes, the settled payout does not).

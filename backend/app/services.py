@@ -2,7 +2,7 @@ import hashlib
 import json
 import os
 from datetime import datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
@@ -217,6 +217,7 @@ async def day_payloads(db, days):
 
     An owner correction after the close rebuilds the summary but never rewrites
     the payout, so both figures are returned and their difference is explicit.
+    ``cogs`` and ``wastage_cost`` split the day's ``cost`` into its P&L lines.
     """
     if not days:
         return []
@@ -226,12 +227,17 @@ async def day_payloads(db, days):
         )
     )
     settled = {row.source: row.net_profit for row in result.scalars()}
+    losses = await wastage_costs(db, [day.id for day in days])
     payloads = []
     for day in days:
         original = settled.get(f"day:{day.id}")
         payload = data(day)
         payload["settled_net_profit"] = original
         payload["variance"] = None if original is None else day.net_profit - original
+        # Profit and loss lines: cost = cost of sales + wastage loss.
+        loss = losses.get(day.id, 0)
+        payload["wastage_cost"] = loss
+        payload["cogs"] = day.cost - loss
         payloads.append(payload)
     return payloads
 
@@ -252,6 +258,87 @@ async def recompute_day_totals(db, day):
         day.net_profit = day.revenue - day.cost - day.expenses
     await db.flush()
     return day
+
+
+# Live birds lose at least 35% of their weight when slaughtered and dressed, so
+# at most 65% of a live purchase can ever be sold as meat.
+MIN_PROCESSING_LOSS = Decimal("0.35")
+MAX_DRESSED_YIELD = 1 - MIN_PROCESSING_LOSS
+
+
+def dressed_weight(live, dressed=None):
+    """Sellable meat (kg) from a live-weight purchase, and whether it was capped.
+
+    Never more than 65% of the live weight, rounded down to the gram. An empty
+    or zero ``dressed`` means "use the maximum"; a larger one is clamped to it;
+    a smaller one (a poorer real yield) is kept as entered.
+    """
+    cap = (Decimal(live) * MAX_DRESSED_YIELD).quantize(
+        Decimal("0.001"), rounding=ROUND_DOWN
+    )
+    dressed = Decimal(dressed or 0)
+    if dressed <= 0:
+        return cap, False
+    if dressed > cap:
+        return cap, True
+    return dressed, False
+
+
+def recost(b, old_cost, old_outgoing, outgoing):
+    """Cost of a corrected sale or wastage record: its own booked unit cost.
+
+    An edit that leaves the weight alone (amount, birds, note) keeps the cost it
+    was booked with, exactly; a weight change scales that same unit cost. It is
+    never re-priced at today's stock average, so a purchase made later cannot
+    move the profit of the day being corrected. Selling out the shop's last kilos
+    still takes the remaining carrying cost, like a first-time sale does.
+    """
+    outgoing = Decimal(outgoing)
+    old_outgoing = Decimal(old_outgoing)
+    if old_outgoing <= 0:  # no recorded unit cost to keep
+        return allocated_cost(b, outgoing)
+    if outgoing == old_outgoing:
+        return int(old_cost)
+    stock = Decimal(b.stock)
+    if outgoing > stock:
+        fail("Insufficient stock")
+    if outgoing == stock:
+        return int(b.stock_cost)
+    return int(
+        (Decimal(old_cost) * outgoing / old_outgoing).quantize(
+            Decimal(1), rounding=ROUND_HALF_UP
+        )
+    )
+
+
+def wastage_part(op):
+    """The wastage share of one operation's cost (the rest is cost of goods sold).
+
+    A standalone WASTAGE record is all wastage. A sale that carries wastage kg is
+    split by weight, so cost of sales + wastage loss always equals its cost.
+    """
+    if op.kind == "WASTAGE":
+        return int(op.cost)
+    wasted = Decimal(op.wastage or 0)
+    if op.kind != "SALE" or wasted <= 0:
+        return 0
+    total = Decimal(op.quantity) + wasted
+    return int(
+        (Decimal(op.cost) * wasted / total).quantize(Decimal(1), rounding=ROUND_HALF_UP)
+    )
+
+
+async def wastage_costs(db, day_ids):
+    """Wastage loss per day id, derived from the days' operation records."""
+    if not day_ids:
+        return {}
+    result = await db.execute(select(Operation).where(Operation.day_id.in_(day_ids)))
+    losses = {}
+    for row in result.scalars():
+        loss = wastage_part(row)
+        if loss:
+            losses[row.day_id] = losses.get(row.day_id, 0) + loss
+    return losses
 
 
 def allocated_cost(b, outgoing):
@@ -310,7 +397,15 @@ async def operation(db, user, p):
         supplier = await get(db, Supplier, p.supplier_id)
         if supplier.business_id != b.id:
             fail("Supplier belongs to another business", 422)
-    if p.kind in ("PURCHASE", "SALE", "WASTAGE") and p.quantity <= 0:
+    # A live-weight purchase stocks dressed meat: at most 65% of what was bought.
+    quantity, capped = p.quantity, False
+    if p.live_weight is not None:
+        if b.type != "CHICKEN" or p.kind != "PURCHASE":
+            fail("Live weight is only supported on chicken purchases", 422)
+        if p.live_weight <= 0:
+            fail("Positive live weight required", 422)
+        quantity, capped = dressed_weight(p.live_weight, p.quantity)
+    if p.kind in ("PURCHASE", "SALE", "WASTAGE") and quantity <= 0:
         fail("Positive quantity required", 422)
     if p.kind != "WASTAGE" and p.amount <= 0:
         fail("Positive amount required", 422)
@@ -340,7 +435,7 @@ async def operation(db, user, p):
         fail("Category is only supported for expenses", 422)
     cost = 0
     if p.kind == "PURCHASE":
-        b.stock += p.quantity
+        b.stock += quantity
         b.stock_cost += p.amount
         b.stock_count += p.count or 0
     elif p.kind == "SALE":
@@ -366,7 +461,9 @@ async def operation(db, user, p):
     else:
         day.expenses += p.amount
     row = Operation(
-        day_id=day.id, **p.model_dump(exclude={"business_id", "date"}), cost=cost
+        day_id=day.id,
+        **{**p.model_dump(exclude={"business_id", "date"}), "quantity": quantity},
+        cost=cost,
     )
     db.add(row)
     await db.flush()
@@ -390,6 +487,7 @@ async def operation(db, user, p):
         "day": await day_payload(db, day),
         "stock": data(b),
         "business": data(b),
+        "yield_capped": capped,
     }
 
 
@@ -437,9 +535,19 @@ async def edit_operation(db, user, operation_id, p):
     amount = p.amount if "amount" in provided else op.amount
     category = p.category if "category" in provided else op.category
     note = p.note if "note" in provided else op.note
+    live_weight = p.live_weight if "live_weight" in provided else op.live_weight
     kind = op.kind
     if kind in ("PURCHASE", "SALE", "WASTAGE") and quantity <= 0:
         fail("Positive quantity required", 422)
+    capped = False
+    if live_weight is not None:
+        if b.type != "CHICKEN" or kind != "PURCHASE":
+            fail("Live weight is only supported on chicken purchases", 422)
+        if live_weight <= 0:
+            fail("Positive live weight required", 422)
+        # Only ever clamps: the dressed weight stays as recorded unless it now
+        # exceeds 65% of the live weight.
+        quantity, capped = dressed_weight(live_weight, quantity)
     if kind != "WASTAGE" and amount <= 0:
         fail("Positive amount required", 422)
     if kind == "WASTAGE" and amount:
@@ -454,6 +562,9 @@ async def edit_operation(db, user, operation_id, p):
         fail("Count is only supported for chicken and LPG purchases, sales and wastage", 422)
     if category is not None and kind != "EXPENSE":
         fail("Category is only supported for expenses", 422)
+    old_outgoing = Decimal(op.quantity or 0) + (
+        Decimal(op.wastage or 0) if kind == "SALE" else 0
+    )
     _apply_operation_effect(
         b, day, kind, op.quantity, op.amount, op.cost, op.count, -1, op.wastage or 0
     )
@@ -461,11 +572,13 @@ async def edit_operation(db, user, operation_id, p):
     if kind == "SALE":
         if (count or 0) > b.stock_count:
             fail("Insufficient bird count in stock", 422)
-        new_cost = allocated_cost(b, Decimal(quantity) + Decimal(wastage or 0))
+        new_cost = recost(
+            b, op.cost, old_outgoing, Decimal(quantity) + Decimal(wastage or 0)
+        )
     elif kind == "WASTAGE":
         if (count or 0) > b.stock_count:
             fail("Insufficient bird count in stock", 422)
-        new_cost = allocated_cost(b, quantity)
+        new_cost = recost(b, op.cost, old_outgoing, Decimal(quantity))
     _apply_operation_effect(b, day, kind, quantity, amount, new_cost, count, +1, wastage or 0)
     if b.stock < 0 or b.stock_cost < 0 or b.stock_count < 0:
         fail("Correction would make stock negative", 422)
@@ -482,6 +595,7 @@ async def edit_operation(db, user, operation_id, p):
     op.quantity = quantity
     op.count = count
     op.wastage = wastage or 0
+    op.live_weight = live_weight
     op.amount = amount
     op.cost = new_cost
     op.category = category
@@ -493,6 +607,7 @@ async def edit_operation(db, user, operation_id, p):
         "day": await day_payload(db, day),
         "business": data(b),
         "stock": data(b),
+        "yield_capped": capped,
     }
 
 

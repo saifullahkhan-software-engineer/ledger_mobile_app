@@ -79,6 +79,8 @@ private val urdu = mapOf(
     "Cylinders" to "سلنڈر", "Quantity (cylinders)" to "مقدار (سلنڈر)", "Purchased (cylinders)" to "خریداری (سلنڈر)", "Sold (cylinders)" to "فروخت (سلنڈر)",
     "Weight (kg)" to "وزن (کلوگرام)", "Quantity (count)" to "مقدار (تعداد)", "Price (per KG)" to "فی کلو قیمت (روپے)",
     "Wastage" to "ضائع", "Record wastage" to "ضائع درج کریں", "Wastage (kg)" to "ضائع (کلوگرام)",
+    "Wastage loss" to "ضائع کا نقصان", "Live weight (kg)" to "زندہ وزن (کلوگرام)",
+    "Dressed weight (kg)" to "گوشت کا وزن (کلوگرام)", "Cost per kg" to "فی کلو لاگت",
     "Number of birds" to "پرندوں کی تعداد", "Edit stock" to "اسٹاک تبدیل کریں",
     "Stock price" to "اسٹاک کی قیمت", "Average price per kg" to "اوسط فی کلو قیمت",
     "Enter the total amount. It is not calculated from weight." to "کل رقم درج کریں۔ یہ وزن سے حساب نہیں ہوتی۔",

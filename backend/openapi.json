@@ -2894,6 +2894,23 @@
             "title": "Wastage",
             "default": "0"
           },
+          "live_weight": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,3}0*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Weight"
+          },
           "amount": {
             "type": "integer",
             "maximum": 1000000000000.0,
@@ -3094,6 +3111,23 @@
               }
             ],
             "title": "Wastage"
+          },
+          "live_weight": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,3}0*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Weight"
           },
           "amount": {
             "anyOf": [

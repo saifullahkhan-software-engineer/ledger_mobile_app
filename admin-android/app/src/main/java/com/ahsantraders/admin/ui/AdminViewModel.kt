@@ -137,7 +137,7 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
                     it.copy(
                         summary = summary,
                         // settled/variance live at the top level of the summary response.
-                        day = summary.day?.copy(settled_net_profit = summary.settled_net_profit, variance = summary.variance),
+                        day = summary.day?.copy(settled_net_profit = summary.settled_net_profit, variance = summary.variance, wastage_cost = summary.wastage_cost),
                         dayRelation = summary.relation,
                         dayFirstDate = summary.bounds?.first_date,
                         dayLastDate = summary.bounds?.last_date ?: businessDate(),
@@ -219,6 +219,7 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
             "quantity" to (qty?.stripTrailingZeros()?.toPlainString() ?: "0"),
             "count" to (op.count?.toString() ?: ""),
             "wastage" to (waste?.takeIf { it.signum() > 0 }?.stripTrailingZeros()?.toPlainString() ?: ""),
+            "live_weight" to (op.live_weight?.toBigDecimalOrNull()?.takeIf { it.signum() > 0 }?.stripTrailingZeros()?.toPlainString() ?: ""),
             "amount" to java.math.BigDecimal.valueOf(op.amount, 2).toPlainString(),
             "category" to (op.category ?: ""),
             "note" to op.note
@@ -425,7 +426,10 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
         val batchId = s.batch?.id.orEmpty()
         var message = "Record saved successfully."
         when (draft.kind) {
-            FormKind.SALE, FormKind.PURCHASE, FormKind.EXPENSE, FormKind.BYPRODUCT, FormKind.WASTAGE -> repo.idempotent(user.id, "daily", body.toString()) { repo.api.daily(it, body) }
+            FormKind.SALE, FormKind.PURCHASE, FormKind.EXPENSE, FormKind.BYPRODUCT, FormKind.WASTAGE -> {
+                val saved = repo.idempotent(user.id, "daily", body.toString()) { repo.api.daily(it, body) }
+                message = if (saved.get("yield_capped")?.asBoolean == true) "Record saved. Dressed weight was capped at 65% of the live weight." else message
+            }
             FormKind.EDIT_STOCK -> {
                 repo.idempotent(user.id, "stock:${s.business?.id}", body.toString()) { repo.api.updateStock(it, body) }
                 message = "Stock updated."

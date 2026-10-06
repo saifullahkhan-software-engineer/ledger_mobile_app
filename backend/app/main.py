@@ -79,6 +79,7 @@ from .services import (
     today,
     update_stock,
     wallet,
+    wastage_costs,
 )
 
 app = FastAPI(
@@ -706,12 +707,20 @@ async def reports(
         costs = sum(d.cost + d.expenses for d in days) + sum(
             x.expenses for x in batches
         )
+        # The same costs as profit and loss lines: a day's `cost` is cost of
+        # sales plus wastage loss; batch costs (broiler) are all expenses.
+        wastage = sum((await wastage_costs(db, [d.id for d in days])).values())
+        cogs = sum(d.cost for d in days) - wastage
+        expenses = sum(d.expenses for d in days) + sum(x.expenses for x in batches)
         rows.append(
             {
                 "business_id": b.id,
                 "name": b.name,
                 "type": b.type,
                 "revenue": revenue,
+                "cogs": cogs,
+                "wastage_cost": wastage,
+                "expenses": expenses,
                 "cost_and_expenses": costs,
                 "net_profit": revenue - costs,
                 "open_days": sum(d.status == "OPEN" for d in days),
@@ -722,6 +731,9 @@ async def reports(
         "end": end,
         "businesses": rows,
         "total_sales": sum(r["revenue"] for r in rows),
+        "total_cogs": sum(r["cogs"] for r in rows),
+        "total_wastage_cost": sum(r["wastage_cost"] for r in rows),
+        "total_expenses": sum(r["expenses"] for r in rows),
         "total_cost_and_expenses": sum(r["cost_and_expenses"] for r in rows),
         "total_profit": sum(r["net_profit"] for r in rows),
     }
@@ -1026,6 +1038,8 @@ async def business_summary(
         "bounds": {"first_date": first_date, "last_date": current},
         "settled_net_profit": settled.get("settled_net_profit"),
         "variance": settled.get("variance"),
+        "cogs": settled.get("cogs"),
+        "wastage_cost": settled.get("wastage_cost"),
         "day": data(day) if day else None,
         "purchased_quantity": sum(r.quantity for r in ops if r.kind == "PURCHASE"),
         "sold_quantity": sum(r.quantity for r in ops if r.kind == "SALE"),

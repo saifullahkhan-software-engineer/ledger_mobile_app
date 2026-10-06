@@ -52,6 +52,29 @@ class ValidationTest {
         assertEquals("1.25", waste["quantity"].asString)
         assertThrows(IllegalArgumentException::class.java) { formBody(Draft(FormKind.WASTAGE, mapOf("date" to date, "quantity" to "1")), lpg, null, date) }
     }
+    @Test fun chickenPurchaseSendsLiveWeightAndDressedWeightIsOptional() {
+        val live = formBody(Draft(FormKind.PURCHASE, mapOf("date" to date, "live_weight" to "100", "quantity" to "", "amount" to "15000")), chicken, null, date)
+        assertEquals("100", live["live_weight"].asString)
+        assertEquals("0", live["quantity"].asString)
+        assertEquals(1500000L, live["amount"].asLong)
+        val both = formBody(Draft(FormKind.PURCHASE, mapOf("date" to date, "live_weight" to "100", "quantity" to "62.5", "amount" to "15000")), chicken, null, date)
+        assertEquals("62.5", both["quantity"].asString)
+        val plain = formBody(Draft(FormKind.PURCHASE, mapOf("date" to date, "quantity" to "10", "amount" to "1000")), chicken, null, date)
+        assertFalse(plain.has("live_weight"))
+        assertThrows(IllegalArgumentException::class.java) { formBody(Draft(FormKind.PURCHASE, mapOf("date" to date, "amount" to "1000")), chicken, null, date) }
+    }
+    @Test fun liveWeightIsOnlySentForChickenPurchases() {
+        val lpgBuy = formBody(Draft(FormKind.PURCHASE, mapOf("date" to date, "live_weight" to "100", "quantity" to "5", "amount" to "1000")), lpg, null, date)
+        assertFalse(lpgBuy.has("live_weight"))
+        val sale = formBody(Draft(FormKind.SALE, mapOf("date" to date, "live_weight" to "100", "quantity" to "5", "amount" to "1000")), chicken, null, date)
+        assertFalse(sale.has("live_weight"))
+    }
+    @Test fun correctingAChickenPurchaseCanSendLiveWeight() {
+        val chickenEdit = formBody(Draft(FormKind.EDIT_OPERATION, mapOf("kind" to "PURCHASE", "lpg" to "0", "quantity" to "60", "amount" to "15000", "live_weight" to "100", "note" to "")), chicken, null, date)
+        assertEquals("100", chickenEdit["live_weight"].asString)
+        val lpgEdit = formBody(Draft(FormKind.EDIT_OPERATION, mapOf("kind" to "PURCHASE", "lpg" to "1", "quantity" to "5", "amount" to "1000", "live_weight" to "100", "note" to "")), lpg, null, date)
+        assertFalse(lpgEdit.has("live_weight"))
+    }
     @Test fun stockEditSendsWeightCountAndPrice() {
         val result = formBody(Draft(FormKind.EDIT_STOCK, mapOf("quantity" to "12.25", "count" to "9", "amount" to "1500.50")), chicken, null, date)
         assertEquals("12.25", result["quantity"].asString)

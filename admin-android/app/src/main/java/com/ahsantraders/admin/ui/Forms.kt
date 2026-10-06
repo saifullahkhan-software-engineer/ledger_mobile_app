@@ -64,7 +64,9 @@ fun formTitle(kind: FormKind): String = when (kind) {
                 }
             }
             input("date", "Date", hint = if (owner) "YYYY-MM-DD · super admin can record a previous Pakistan date" else "YYYY-MM-DD · ${businessDate()} in Pakistan", enabled = !s.saving && owner)
-            input("quantity", "Weight (kg)", KeyboardType.Decimal)
+            val liveBuy = chicken && draft.kind == FormKind.PURCHASE
+            if (liveBuy) input("live_weight", "Live weight (kg)", KeyboardType.Decimal, hint = "Optional — weight of the live birds bought. At most 65% of it can be sold as meat.")
+            input("quantity", if (liveBuy) "Dressed weight (kg)" else "Weight (kg)", KeyboardType.Decimal, hint = if (liveBuy) "Meat that goes into stock. Leave empty to use 65% of the live weight." else null)
             if (lpg && draft.kind != FormKind.WASTAGE) input("count", "Quantity (cylinders)", KeyboardType.Number, hint = "Number of cylinders, e.g. 5")
             if (chicken) input("count", if (draft.kind == FormKind.WASTAGE) "Birds discarded (optional)" else "Quantity (birds)", KeyboardType.Number, hint = "Optional — number of birds, e.g. 3 or 4")
             if (draft.kind == FormKind.SALE && chicken) input("wastage", "Wastage (kg)", KeyboardType.Decimal, hint = "Cutting loss or leftover weight so stock matches at day end")
@@ -96,7 +98,9 @@ fun formTitle(kind: FormKind): String = when (kind) {
             val kind = draft.values["kind"].orEmpty()
             val lpg = draft.values["lpg"] == "1"
             Text("Correcting a ${kindLabel(kind).lowercase()} from ${draft.values["date"].orEmpty()}. The date cannot change.", color = Muted, style = MaterialTheme.typography.bodyMedium)
-            if (kind != "EXPENSE") input("quantity", "Weight (kg)", KeyboardType.Decimal)
+            val liveBuy = kind == "PURCHASE" && !lpg
+            if (liveBuy) input("live_weight", "Live weight (kg)", KeyboardType.Decimal, hint = "Optional — at most 65% of it can be sold as meat; the dressed weight is capped to match.")
+            if (kind != "EXPENSE") input("quantity", if (liveBuy) "Dressed weight (kg)" else "Weight (kg)", KeyboardType.Decimal)
             if (kind == "PURCHASE" || kind == "SALE" || kind == "WASTAGE") {
                 if (lpg) input("count", "Quantity (cylinders)", KeyboardType.Number, hint = "Number of cylinders, e.g. 5")
                 if (!lpg) input("count", "Quantity (birds)", KeyboardType.Number, hint = "Optional — number of birds, e.g. 3 or 4")

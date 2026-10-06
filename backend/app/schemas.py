@@ -63,6 +63,9 @@ class DailyInput(Input):
     quantity: Quantity = Decimal(0)
     count: Count | None = None
     wastage: Quantity = Decimal(0)
+    # Chicken purchases only: kg of live birds bought. Dressed meat (`quantity`)
+    # is capped at 65% of it; leave `quantity` at 0 to use the full 65%.
+    live_weight: Quantity | None = None
     amount: Money = 0
     category: Annotated[str, Field(max_length=50)] | None = None
     channel: Literal["RETAIL", "COMMERCIAL"] | None = None
@@ -74,6 +77,7 @@ class OperationUpdate(Input):
     quantity: Quantity | None = None
     count: Count | None = None
     wastage: Quantity | None = None
+    live_weight: Quantity | None = None
     amount: Money | None = None
     category: Annotated[str, Field(max_length=50)] | None = None
     note: Note | None = None

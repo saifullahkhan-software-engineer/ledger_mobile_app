@@ -85,7 +85,15 @@ fun formBody(draft: Draft, business: Business?, batch: Batch?, today: String = b
                 require(on <= today) { "Daily records cannot use a future date" }
                 require(on == today || allowPastDate) { "Only the super admin can add a record to a previous date" }
                 addProperty("business_id", b.id); addProperty("date", on); addProperty("kind", draft.kind.name)
-                addProperty("quantity", quantityInput(value("quantity"), false, false))
+                // A chicken purchase may give the live weight; the dressed weight is then
+                // optional and the server uses (or caps it at) 65% of the live weight.
+                val live = if (draft.kind == FormKind.PURCHASE && b.type == "CHICKEN") value("live_weight").trim() else ""
+                if (live.isNotEmpty()) {
+                    addProperty("live_weight", quantityInput(live, false, false))
+                    addProperty("quantity", if (value("quantity").isBlank()) "0" else quantityInput(value("quantity"), false, false))
+                } else {
+                    addProperty("quantity", quantityInput(value("quantity"), false, false))
+                }
                 if (draft.kind == FormKind.WASTAGE) {
                     require(b.type == "CHICKEN") { "Wastage is only recorded in the chicken shop" }
                     addProperty("amount", 0)
@@ -126,6 +134,7 @@ fun formBody(draft: Draft, business: Business?, batch: Batch?, today: String = b
                 val kind = value("kind")
                 require(kind in listOf("PURCHASE", "SALE", "BYPRODUCT", "EXPENSE", "WASTAGE")) { "Unknown transaction kind" }
                 if (kind != "EXPENSE") addProperty("quantity", if (kind == "BYPRODUCT" && value("quantity").isBlank()) "0" else quantityInput(value("quantity"), kind == "BYPRODUCT", false))
+                if (kind == "PURCHASE" && value("lpg") != "1" && value("live_weight").isNotBlank()) addProperty("live_weight", quantityInput(value("live_weight"), false, false))
                 if (kind == "PURCHASE" || kind == "SALE") {
                     addProperty("amount", moneyInput(value("amount")))
                     addProperty("count", if (value("count").isNotBlank()) count("count", true) else 0)

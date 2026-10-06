@@ -34,14 +34,17 @@ def ensure_index_on_connection(conn, table, name, columns):
 
 def ensure_additive_columns_on_connection(conn):
     """Self-heal legacy databases: bird count, expense category, counted stock,
-    chicken-sale wastage and the operation history index. Safe to run on every
-    connection; never touches data."""
+    chicken-sale wastage, live purchase weight and the operation history index.
+    Safe to run on every connection; never touches data."""
     if not inspect(conn).has_table("businesses"):
         return
     ensure_column_on_connection(conn, "operations", "count", "count INTEGER")
     ensure_column_on_connection(conn, "operations", "category", "category VARCHAR(50)")
     ensure_column_on_connection(
         conn, "operations", "wastage", "wastage NUMERIC(18, 3) DEFAULT 0 NOT NULL"
+    )
+    ensure_column_on_connection(
+        conn, "operations", "live_weight", "live_weight NUMERIC(18, 3)"
     )
     ensure_column_on_connection(
         conn, "businesses", "stock_count", "stock_count INTEGER NOT NULL DEFAULT 0"

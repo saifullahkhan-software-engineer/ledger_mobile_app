@@ -61,16 +61,19 @@ def test_upgrade_adds_missing_columns_and_preserves_data(client, admin_headers):
     # drop it without CASCADE. `operations.count`/`category` are portable.
     with sync_engine.begin() as conn:
         simulate_legacy_schema(
-            conn, "operations", OPERATION_COLUMNS, ["count", "category", "wastage"]
+            conn,
+            "operations",
+            OPERATION_COLUMNS,
+            ["count", "category", "wastage", "live_weight"],
         )
         conn.execute(text("DROP INDEX IF EXISTS ix_operations_day_id"))
 
-    assert {"count", "category", "wastage"} & operation_columns() == set()
+    assert {"count", "category", "wastage", "live_weight"} & operation_columns() == set()
 
     result = run_manage("upgrade-db")
     assert result.returncode == 0, result.stdout + result.stderr
 
-    assert {"count", "category", "wastage"} <= operation_columns()
+    assert {"count", "category", "wastage", "live_weight"} <= operation_columns()
     assert "ix_operations_day_id" in {
         index["name"] for index in inspect(sync_engine).get_indexes("operations")
     }

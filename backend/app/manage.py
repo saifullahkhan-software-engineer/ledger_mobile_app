@@ -89,7 +89,7 @@ async def upgrade():
     """Repeatable additive schema upgrade; no data is altered or deleted."""
     await _apply_upgrade()
     print(
-        "Upgraded legacy database schema (missing columns and indexes added, including operations.wastage). "
+        "Upgraded legacy database schema (missing columns and indexes added, including operations.wastage and operations.live_weight). "
         "Existing users, businesses and financial history are preserved. "
         "Databases created before the custom-icon feature was removed may "
         "still hold the retired icon tables; run 'python -m app.manage "

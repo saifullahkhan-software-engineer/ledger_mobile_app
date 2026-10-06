@@ -376,7 +376,13 @@ fun transactionDetail(row: Operation, unit: String): String {
         SectionTitle("Overall View", "${report.start}  →  ${report.end}")
         Panel {
             DataRow("Total revenue", rupees(report.total_sales))
-            DataRow("Total costs & expenses", rupees(report.total_cost_and_expenses))
+            if (report.total_cogs + report.total_wastage_cost + report.total_expenses > 0L) {
+                DataRow("Cost of sales", rupees(report.total_cogs))
+                if (report.total_wastage_cost > 0L) DataRow("Wastage loss", rupees(report.total_wastage_cost))
+                DataRow("Expenses", rupees(report.total_expenses))
+            } else {
+                DataRow("Total costs & expenses", rupees(report.total_cost_and_expenses))
+            }
             HorizontalDivider()
             DataRow("Net profit", rupees(report.total_profit), if (report.total_profit < 0) Chicken else Green)
             if (report.businesses.any { it.open_days > 0 }) Text("Includes open days. These totals can change before settlement.", fontSize = 12.sp, color = Muted)
@@ -589,7 +595,10 @@ fun transactionDetail(row: Operation, unit: String): String {
             if (day != null) {
                 Panel {
                     Status(day.status)
-                    DataRow("Revenue", rupees(day.revenue)); DataRow("Cost of sales", rupees(day.cost)); DataRow("Expenses", rupees(day.expenses)); DataRow("Net profit", rupees(day.profit), Green)
+                    val lostToWastage = day.wastage_cost ?: 0L
+                    DataRow("Revenue", rupees(day.revenue)); DataRow("Cost of sales", rupees(day.cost - lostToWastage))
+                    if (lostToWastage > 0L) DataRow("Wastage loss", rupees(lostToWastage))
+                    DataRow("Expenses", rupees(day.expenses)); DataRow("Net profit", rupees(day.profit), Green)
                     s.summary?.wasted_quantity?.toBigDecimalOrNull()?.takeIf { it.signum() > 0 }?.let { DataRow("Wastage", "${s.summary.wasted_quantity} kg") }
                     day.settled_net_profit?.let { DataRow("Profit settled with investors", rupees(it)) }
                     day.variance?.takeIf { it != 0L }?.let { DataRow("Difference after correction", rupees(it), if (it < 0) Chicken else Green) }
@@ -631,10 +640,15 @@ fun transactionDetail(row: Operation, unit: String): String {
                 Row(verticalAlignment = Alignment.CenterVertically) { Text(tr(kindLabel(op.kind)), color = Green, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f)); Status(od.day.status) }
                 DataRow("Date", od.day.date)
                 DataRow("Business", od.business.name)
+                op.live_weight?.toBigDecimalOrNull()?.takeIf { it.signum() > 0 }?.let { DataRow("Live weight (kg)", it.stripTrailingZeros().toPlainString()) }
                 if (op.kind != "EXPENSE") DataRow("Weight (kg)", op.quantity)
                 op.count?.takeIf { it > 0 }?.let { DataRow(countLabel, it.toString()) }
                 op.wastage?.toBigDecimalOrNull()?.takeIf { it.signum() > 0 }?.let { DataRow("Wastage (kg)", op.wastage) }
                 if (op.kind != "WASTAGE") DataRow("Amount", rupees(op.amount))
+                if (op.kind == "PURCHASE" && od.business.type == "CHICKEN") {
+                    val dressedKg = op.quantity.toBigDecimalOrNull()
+                    if (dressedKg != null && dressedKg.signum() > 0) DataRow("Cost per kg", rupees(java.math.BigDecimal.valueOf(op.amount).divide(dressedKg, 0, java.math.RoundingMode.HALF_UP).toLong()))
+                }
                 if (op.kind == "SALE" || op.kind == "WASTAGE") DataRow("Cost of sales", rupees(op.cost))
                 if (op.kind == "SALE") DataRow("Profit contribution", rupees(op.amount - op.cost), Green)
                 op.category?.takeIf { it.isNotBlank() }?.let { DataRow("Category", it) }

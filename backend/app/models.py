@@ -99,6 +99,11 @@ class Operation(Base):
     quantity: Mapped[float] = mapped_column(Numeric(18, 3), default=0)
     count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     wastage: Mapped[float] = mapped_column(Numeric(18, 3), default=0)
+    # Live birds bought, in kg (chicken purchases only). `quantity` stays the
+    # dressed meat that enters stock: never more than 65% of this weight.
+    live_weight: Mapped[float | None] = mapped_column(
+        Numeric(18, 3), nullable=True, default=None
+    )
     amount: Mapped[int] = mapped_column(BigInteger)
     cost: Mapped[int] = mapped_column(BigInteger, default=0)
     category: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)

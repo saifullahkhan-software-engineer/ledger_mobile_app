@@ -133,7 +133,6 @@ import kotlin.math.abs
                 Text("No daily investor payout. Profit is settled at harvest.", color = Muted, fontSize = 12.sp)
             } else {
                 summary.day?.let { Status(it.status) }
-                DataRow("Revenue", rupees(summary.day?.revenue ?: 0))
                 DataRow("Purchased", "${summary.purchased_quantity} kg")
                 DataRow("Sold", "${summary.sold_quantity} kg")
                 if (b.type == "CHICKEN") {
@@ -149,15 +148,16 @@ import kotlin.math.abs
                 if (b.type == "CHICKEN" && summary.sold_count > 0) DataRow("Sold (birds)", summary.sold_count.toString())
                 if (b.type == "LPG" && summary.purchased_count > 0) DataRow("Purchased (cylinders)", summary.purchased_count.toString())
                 if (b.type == "LPG" && summary.sold_count > 0) DataRow("Sold (cylinders)", summary.sold_count.toString())
-                if (b.type == "CHICKEN") DataRow("Other sale", rupees(summary.byproduct_revenue))
-                else { DataRow("Retail sales", summary.retail_sold); DataRow("Commercial sales", summary.commercial_sold) }
+                if (b.type != "CHICKEN") { DataRow("Retail sales", summary.retail_sold); DataRow("Commercial sales", summary.commercial_sold) }
                 DataRow("Operating expenses", rupees(summary.day?.expenses ?: 0))
-                HorizontalDivider(); DataRow("Net profit", rupees(summary.day?.profit ?: 0), Green)
                 if (summary.day == null) Text("No operations recorded today.", color = Muted, fontSize = 12.sp)
             }
         }
     }
 
+    LinkRow("Reports", Icons.Default.BarChart, tr("View revenue, costs and profit for this business.")) {
+        vm.openBusinessReports()
+    }
 
     if (b.type == "BROILER") {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -372,17 +372,17 @@ fun transactionDetail(row: Operation, unit: String): String {
 @Composable fun ReportsScreen(s: AdminState, vm: AdminViewModel) {
     DateFilters(s, vm, true)
     s.report?.let { report ->
-        // Overall view — company-wide totals for the selected period.
+        // Totals across all businesses matching the active report filter.
         SectionTitle("Overall View", "${report.start}  →  ${report.end}")
         Panel {
-            DataRow("Total sales", rupees(report.total_sales))
+            DataRow("Total revenue", rupees(report.total_sales))
             DataRow("Total costs & expenses", rupees(report.total_cost_and_expenses))
             HorizontalDivider()
             DataRow("Net profit", rupees(report.total_profit), if (report.total_profit < 0) Chicken else Green)
             if (report.businesses.any { it.open_days > 0 }) Text("Includes open days. These totals can change before settlement.", fontSize = 12.sp, color = Muted)
         }
         // A separate chart for every business in the report.
-        SectionTitle("Business charts", "Sales, costs and net profit per business for the selected period.")
+        SectionTitle("Business charts", "Revenue, costs and net profit per business for the selected period.")
         if (report.businesses.isEmpty()) Empty()
         report.businesses.forEach { business -> BusinessChart(business) }
         SectionTitle("Business-wise profit")
@@ -415,7 +415,7 @@ fun transactionDetail(row: Operation, unit: String): String {
 }
 
 /**
- * Separate chart for one business: horizontal bars comparing sales, costs
+ * Separate chart for one business: horizontal bars comparing revenue, costs
  * and net profit for the selected period. Bars scale against the largest
  * value of that business so each chart is easy to read on its own.
  */
@@ -427,7 +427,7 @@ fun transactionDetail(row: Operation, unit: String): String {
             Text(rupees(b.net_profit), color = if (b.net_profit < 0) Chicken else Green, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
         val top = maxOf(b.revenue, b.cost_and_expenses, abs(b.net_profit), 1L)
-        ChartBar("Sales", b.revenue, top, Green)
+        ChartBar("Revenue", b.revenue, top, Green)
         ChartBar("Costs", b.cost_and_expenses, top, Color(0xFFE58B19))
         ChartBar("Net profit", b.net_profit, top, if (b.net_profit >= 0) Green else Chicken)
     }

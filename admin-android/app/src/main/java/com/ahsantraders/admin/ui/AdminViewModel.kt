@@ -180,6 +180,12 @@ class AdminViewModel @Inject constructor(private val repo: AdminRepository) : Vi
             Page.SETTINGS -> { val user = api.profile(); updateState { it.copy(user = user) } }
         }
     }
+    fun openBusinessReports() {
+        if (state.value.saving) return
+        val business = state.value.business ?: return
+        updateState { it.copy(reportBusiness = business.id) }
+        go(Page.REPORTS, business)
+    }
     fun go(page: Page, business: Business? = state.value.business) {
         if (state.value.saving) return
         readJob?.cancel()
